@@ -94,13 +94,17 @@ export async function main(argv: readonly string[] = process.argv.slice(2)): Pro
 
 async function validateCommand(file: string): Promise<number> {
   try {
-    const flow = await loadFlow(resolveFlowPath(file));
+    // Report the path that was actually loaded, not the cwd-joined one:
+    // `pnpm --filter server cli validate flows/demo.json` runs with the package
+    // directory as cwd, so `resolve(file)` would name a non-existent file.
+    const flowPath = resolveFlowPath(file);
+    const flow = await loadFlow(flowPath);
     process.stdout.write(
       `${JSON.stringify(
         {
           command: 'validate',
           status: 'ok',
-          file: resolve(file),
+          file: flowPath,
           flow: { id: flow.id, name: flow.name, version: flow.version, steps: countSteps(flow) },
         },
         null,

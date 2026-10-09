@@ -21,3 +21,4 @@ jobs:
           force_update: true
           src_token: ${{ secrets.MY_GITHUB_TOKEN }}  # 自动获取 GitHub 令牌，用于读取私有仓库
           static_list: "robrowser"                # 白名单：只同步 robrowser 这一个仓库，忽略其他
+          clone_style: "ssh"  # 新增这一行：强制使用 SSH 方式免密拉取你的私有代码

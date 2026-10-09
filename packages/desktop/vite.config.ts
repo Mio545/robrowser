@@ -21,6 +21,10 @@ export default defineConfig({
     target: 'chrome120',
   },
   server: {
+    // Bind to the IPv4 loopback explicitly. Without this, Vite listens on
+    // [::1] only on Windows, while scripts/dev.mjs probes http://127.0.0.1:5273
+    // and would therefore wait forever instead of starting Electron.
+    host: '127.0.0.1',
     port: 5273,
     strictPort: true,
   },

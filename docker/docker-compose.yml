@@ -1,0 +1,63 @@
+# RoboBrowser headless server + scheduled automation (spec 10).
+#
+# Start:
+#   docker compose -f docker/docker-compose.yml up --build
+#
+# The named volume keeps flows, screenshots, the SQLite database and any
+# downloaded artefacts across container restarts.
+services:
+  robrowser:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    image: robrowser:latest
+    container_name: robrowser
+    restart: unless-stopped
+    init: true
+    ports:
+      - '${ROBROWSER_PORT:-8080}:8080'
+    environment:
+      # Bind inside the container; the published port controls host exposure.
+      HOST: 0.0.0.0
+      PORT: 8080
+      RUN_DIR: /data
+      CHROME_PATH: /usr/bin/chromium
+      # headless=new is enough for most sites; set HEADLESS=false to run under
+      # Xvfb for sites that detect headless mode (see README).
+      HEADLESS: '${HEADLESS:-true}'
+      CHROME_ARGS: '${CHROME_ARGS:---no-sandbox,--disable-dev-shm-usage,--disable-gpu}'
+      TZ: '${TZ:-Asia/Shanghai}'
+      LANG: C.UTF-8
+      LC_ALL: C.UTF-8
+      LOG_LEVEL: '${LOG_LEVEL:-info}'
+      # Required in production: signs the one-time takeover tickets.
+      # Generate with: openssl rand -hex 32
+      SECRET: '${SECRET:-dev-insecure-secret-change-me}'
+      # Must be reachable by the operator's browser (see README security notes).
+      PUBLIC_URL: '${PUBLIC_URL:-http://127.0.0.1:8080}'
+      TAKEOVER_TTL_SECONDS: '${TAKEOVER_TTL_SECONDS:-600}'
+      TAKEOVER_SINGLE_CLIENT: '${TAKEOVER_SINGLE_CLIENT:-true}'
+      MAX_CONCURRENCY: '${MAX_CONCURRENCY:-2}'
+      TASK_TIMEOUT_MS: '${TASK_TIMEOUT_MS:-900000}'
+      TASK_RETRIES: '${TASK_RETRIES:-1}'
+    volumes:
+      - robrowser-data:/data
+    # Chromium needs a larger /dev/shm than the 64 MB Docker default; the
+    # --disable-dev-shm-usage flag above mitigates this, the tmpfs removes it.
+    tmpfs:
+      - /tmp:size=512m,mode=1777
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'node',
+          '-e',
+          "fetch('http://127.0.0.1:8080/healthz').then((r)=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+volumes:
+  robrowser-data:

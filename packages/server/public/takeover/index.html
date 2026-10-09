@@ -1,0 +1,733 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex, nofollow" />
+    <title>RoboBrowser — 远程接管</title>
+    <style>
+      :root {
+        color-scheme: dark;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        font-family: system-ui, 'Segoe UI', 'Noto Sans CJK SC', sans-serif;
+        background: #0b1220;
+        color: #e2e8f0;
+        height: 100vh;
+        display: flex;
+        flex-direction: column;
+      }
+      header {
+        display: flex;
+        align-items: center;
+        gap: 1rem;
+        padding: 0.6rem 1rem;
+        background: #111c2f;
+        border-bottom: 1px solid #1e293b;
+        flex-wrap: wrap;
+      }
+      header h1 {
+        font-size: 0.95rem;
+        margin: 0;
+        font-weight: 600;
+      }
+      .grow {
+        flex: 1;
+      }
+      .badge {
+        font-size: 0.72rem;
+        padding: 0.2rem 0.55rem;
+        border-radius: 999px;
+        background: #1e293b;
+        border: 1px solid #334155;
+        white-space: nowrap;
+      }
+      .badge.ok {
+        background: #052e1b;
+        border-color: #16a34a;
+        color: #86efac;
+      }
+      .badge.warn {
+        background: #3b2a05;
+        border-color: #d97706;
+        color: #fcd34d;
+      }
+      .badge.err {
+        background: #3b0d0d;
+        border-color: #dc2626;
+        color: #fca5a5;
+      }
+      button {
+        font: inherit;
+        font-size: 0.8rem;
+        padding: 0.35rem 0.7rem;
+        border-radius: 6px;
+        border: 1px solid #334155;
+        background: #1e293b;
+        color: #e2e8f0;
+        cursor: pointer;
+      }
+      button:hover:not(:disabled) {
+        background: #273449;
+      }
+      button:disabled {
+        opacity: 0.45;
+        cursor: not-allowed;
+      }
+      button.primary {
+        background: #2563eb;
+        border-color: #2563eb;
+        color: #fff;
+        font-weight: 600;
+      }
+      button.primary:hover:not(:disabled) {
+        background: #1d4ed8;
+      }
+      main {
+        flex: 1;
+        display: flex;
+        min-height: 0;
+      }
+      #stage {
+        flex: 1;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 0.75rem;
+        min-width: 0;
+        position: relative;
+      }
+      canvas {
+        max-width: 100%;
+        max-height: 100%;
+        background: #000;
+        border: 1px solid #1e293b;
+        border-radius: 8px;
+        cursor: crosshair;
+        touch-action: none;
+      }
+      #overlay {
+        position: absolute;
+        inset: 0.75rem;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: rgb(11 18 32 / 78%);
+        border-radius: 8px;
+        text-align: center;
+        padding: 1rem;
+        font-size: 0.9rem;
+        line-height: 1.6;
+      }
+      #overlay.hidden {
+        display: none;
+      }
+      aside {
+        width: 320px;
+        padding: 0.9rem 1rem;
+        background: #0d1727;
+        border-left: 1px solid #1e293b;
+        overflow-y: auto;
+        display: flex;
+        flex-direction: column;
+        gap: 0.75rem;
+        font-size: 0.8rem;
+      }
+      aside h2 {
+        font-size: 0.78rem;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        color: #94a3b8;
+        margin: 0;
+      }
+      dl {
+        margin: 0;
+        display: grid;
+        grid-template-columns: auto 1fr;
+        gap: 0.25rem 0.6rem;
+      }
+      dt {
+        color: #94a3b8;
+      }
+      dd {
+        margin: 0;
+        word-break: break-all;
+      }
+      textarea {
+        width: 100%;
+        min-height: 5rem;
+        background: #0b1220;
+        color: #e2e8f0;
+        border: 1px solid #334155;
+        border-radius: 6px;
+        padding: 0.5rem;
+        font: inherit;
+        font-size: 0.8rem;
+        resize: vertical;
+      }
+      .row {
+        display: flex;
+        gap: 0.4rem;
+        flex-wrap: wrap;
+      }
+      #log {
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-size: 0.7rem;
+        line-height: 1.5;
+        color: #94a3b8;
+        max-height: 10rem;
+        overflow-y: auto;
+        background: #080f1b;
+        border: 1px solid #1e293b;
+        border-radius: 6px;
+        padding: 0.4rem 0.5rem;
+        white-space: pre-wrap;
+        word-break: break-word;
+      }
+      .hint {
+        color: #94a3b8;
+        line-height: 1.5;
+      }
+      .danger {
+        color: #fca5a5;
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>RoboBrowser 远程接管</h1>
+      <span id="conn" class="badge">连接中…</span>
+      <span id="role" class="badge">未接管</span>
+      <span id="timer" class="badge">--:--</span>
+      <span class="grow"></span>
+      <button id="reconnect" title="手动重连">重连</button>
+      <button id="complete" class="primary" disabled>完成，继续自动化</button>
+    </header>
+
+    <main>
+      <div id="stage">
+        <canvas id="screen" width="1280" height="720"></canvas>
+        <div id="overlay">正在建立安全连接…</div>
+      </div>
+
+      <aside>
+        <section>
+          <h2>会话信息</h2>
+          <dl>
+            <dt>运行</dt>
+            <dd id="runId">—</dd>
+            <dt>步骤</dt>
+            <dd id="stepId">—</dd>
+            <dt>原因</dt>
+            <dd id="reason">—</dd>
+            <dt>到期</dt>
+            <dd id="expiresAt">—</dd>
+            <dt>分辨率</dt>
+            <dd id="resolution">—</dd>
+          </dl>
+        </section>
+
+        <section>
+          <h2>提示</h2>
+          <p id="message" class="hint">—</p>
+        </section>
+
+        <section>
+          <h2>整段文本输入</h2>
+          <textarea
+            id="text"
+            placeholder="把文本粘贴到这里，然后点击“发送文本”。适用于一次性填充验证码 / 长文本。"
+          ></textarea>
+          <div class="row">
+            <button id="sendText">发送文本</button>
+            <button id="clearText">清空</button>
+          </div>
+        </section>
+
+        <section>
+          <h2>操作警告</h2>
+          <p class="hint danger">请不要使用浏览器缩放（Ctrl +/-）。缩放会导致坐标换算偏移。</p>
+          <p class="hint">输入事件按约 20 fps 节流发送；仅当前接管者可以操作。</p>
+        </section>
+
+        <section>
+          <h2>日志</h2>
+          <div id="log"></div>
+        </section>
+      </aside>
+    </main>
+
+    <script>
+      /*
+       * Remote takeover page (spec 8.8).
+       *
+       * Flow:
+       *   1. Read ?ticket=… from the URL (a one-time JWT).
+       *   2. Exchange it at POST /takeover/exchange for a short-lived socket token.
+       *   3. Immediately history.replaceState() so the ticket never stays in the
+       *      address bar / browser history.
+       *   4. Open /takeover/ws?token=… and render base64 JPEG screencast frames.
+       *
+       * No build step: this is intentionally a single static file.
+       */
+      (function () {
+        'use strict';
+
+        var params = new URLSearchParams(location.search);
+        var ticket = params.get('ticket');
+
+        var el = {
+          conn: document.getElementById('conn'),
+          role: document.getElementById('role'),
+          timer: document.getElementById('timer'),
+          runId: document.getElementById('runId'),
+          stepId: document.getElementById('stepId'),
+          reason: document.getElementById('reason'),
+          expiresAt: document.getElementById('expiresAt'),
+          resolution: document.getElementById('resolution'),
+          message: document.getElementById('message'),
+          canvas: document.getElementById('screen'),
+          overlay: document.getElementById('overlay'),
+          complete: document.getElementById('complete'),
+          reconnect: document.getElementById('reconnect'),
+          text: document.getElementById('text'),
+          sendText: document.getElementById('sendText'),
+          clearText: document.getElementById('clearText'),
+          log: document.getElementById('log'),
+        };
+        var ctx = el.canvas.getContext('2d');
+
+        var socket = null;
+        var socketToken = null;
+        var session = null;
+        var isOperator = false;
+        var expiresAtMs = 0;
+        var reconnectAttempt = 0;
+        var reconnectTimer = null;
+        var finished = false;
+        var lastFrameAt = 0;
+        var frameCount = 0;
+
+        function log(message) {
+          var stamp = new Date().toLocaleTimeString();
+          el.log.textContent = '[' + stamp + '] ' + message + '\n' + el.log.textContent;
+          if (el.log.textContent.length > 8000)
+            el.log.textContent = el.log.textContent.slice(0, 8000);
+        }
+
+        function setBadge(node, text, kind) {
+          node.textContent = text;
+          node.className = 'badge' + (kind ? ' ' + kind : '');
+        }
+
+        function showOverlay(text) {
+          el.overlay.textContent = text;
+          el.overlay.classList.remove('hidden');
+        }
+
+        function hideOverlay() {
+          el.overlay.classList.add('hidden');
+        }
+
+        /* ------------------------------------------------- exchange + socket */
+
+        async function bootstrap() {
+          if (ticket) {
+            try {
+              var response = await fetch('/takeover/exchange', {
+                method: 'POST',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify({ socketToken: ticket }),
+              });
+              var payload = await response.json().catch(function () {
+                return {};
+              });
+              if (!response.ok)
+                throw new Error(payload.message || 'exchange failed: ' + response.status);
+              // The exchanged value is the WS token, issued by the server.
+              socketToken = payload.socketToken || ticket;
+              if (payload.session) applySession(payload.session);
+            } catch (error) {
+              setBadge(el.conn, '鉴权失败', 'err');
+              showOverlay('接管票据无效或已过期：' + error.message);
+              return;
+            }
+            // Spec 8.4: never keep the one-time ticket in the address bar.
+            try {
+              history.replaceState(null, '', location.pathname);
+            } catch (_) {}
+          } else {
+            // Reconnect path: the token was stashed for this tab only.
+            socketToken = sessionStorage.getItem('robrowser.takeover.token');
+          }
+
+          if (!socketToken) {
+            setBadge(el.conn, '缺少令牌', 'err');
+            showOverlay('缺少接管令牌。请重新使用服务器生成的接管链接打开本页面。');
+            return;
+          }
+          sessionStorage.setItem('robrowser.takeover.token', socketToken);
+          connect();
+        }
+
+        function connect() {
+          if (finished) return;
+          setBadge(el.conn, '连接中…', 'warn');
+          var scheme = location.protocol === 'https:' ? 'wss:' : 'ws:';
+          socket = new WebSocket(
+            scheme + '//' + location.host + '/takeover/ws?token=' + encodeURIComponent(socketToken),
+          );
+
+          socket.onopen = function () {
+            reconnectAttempt = 0;
+            setBadge(el.conn, '已连接', 'ok');
+            log('WebSocket 已连接');
+          };
+
+          socket.onmessage = function (event) {
+            var message;
+            try {
+              message = JSON.parse(event.data);
+            } catch (_) {
+              return;
+            }
+            handle(message);
+          };
+
+          socket.onclose = function (event) {
+            if (finished) return;
+            setBadge(el.conn, '已断开', 'err');
+            log('连接关闭（code ' + event.code + '）');
+            if (event.code === 4401 || event.code === 4403) {
+              showOverlay('会话已结束或被拒绝（code ' + event.code + '）。');
+              return;
+            }
+            scheduleReconnect();
+          };
+
+          socket.onerror = function () {
+            log('WebSocket 错误');
+          };
+        }
+
+        function scheduleReconnect() {
+          if (finished) return;
+          reconnectAttempt += 1;
+          var delay = Math.min(1000 * Math.pow(2, reconnectAttempt - 1), 10000);
+          showOverlay(
+            '连接中断，' +
+              Math.round(delay / 1000) +
+              ' 秒后重试（第 ' +
+              reconnectAttempt +
+              ' 次）…',
+          );
+          clearTimeout(reconnectTimer);
+          reconnectTimer = setTimeout(function () {
+            if (socket) {
+              try {
+                socket.close();
+              } catch (_) {}
+            }
+            connect();
+          }, delay);
+        }
+
+        /* -------------------------------------------------------- message bus */
+
+        function handle(message) {
+          switch (message.type) {
+            case 'hello':
+              applySession(message.session);
+              isOperator = Boolean(message.operator);
+              setBadge(
+                el.role,
+                isOperator ? '你是操作者' : '只读（已被占用）',
+                isOperator ? 'ok' : 'warn',
+              );
+              el.complete.disabled = !isOperator;
+              showOverlay('等待实时画面…');
+              log(isOperator ? '已取得操作权（first-wins）' : '已有其他操作者，本端只读');
+              break;
+            case 'frame':
+              renderFrame(message.data, message.metadata);
+              break;
+            case 'state':
+              applySession(message.session);
+              break;
+            case 'resolved':
+              finished = true;
+              setBadge(el.conn, '已完成', 'ok');
+              showOverlay('人工处理完成，自动化已恢复。');
+              log('会话完成，by=' + (message.by || 'operator'));
+              break;
+            case 'revoked':
+              finished = true;
+              showOverlay('会话已被撤销：' + message.reason);
+              break;
+            case 'error':
+              log('错误：' + message.code + ' — ' + message.message);
+              if (message.code === 'TOKEN_INVALID' || message.code === 'TOKEN_REPLAYED') {
+                showOverlay('令牌无效：' + message.message);
+              }
+              break;
+            case 'pong':
+              break;
+            default:
+              break;
+          }
+        }
+
+        function applySession(info) {
+          if (!info) return;
+          session = info;
+          el.runId.textContent = info.runId || '—';
+          el.stepId.textContent = info.stepId || '—';
+          el.reason.textContent = info.reason || '—';
+          el.message.textContent = info.message || '—';
+          el.expiresAt.textContent = info.expiresAt
+            ? new Date(info.expiresAt).toLocaleString()
+            : '—';
+          if (info.expiresAt) expiresAtMs = new Date(info.expiresAt).getTime();
+          if (info.state === 'COMPLETED') {
+            finished = true;
+            setBadge(el.conn, '已完成', 'ok');
+            showOverlay('人工处理完成，自动化已恢复。');
+          }
+        }
+
+        /* ------------------------------------------------------ frame render */
+
+        function renderFrame(data, metadata) {
+          if (!data) return;
+          var image = new Image();
+          image.onload = function () {
+            if (metadata && metadata.deviceWidth) {
+              if (el.canvas.width !== metadata.deviceWidth) el.canvas.width = metadata.deviceWidth;
+              if (el.canvas.height !== metadata.deviceHeight)
+                el.canvas.height = metadata.deviceHeight;
+              el.resolution.textContent = metadata.deviceWidth + '×' + metadata.deviceHeight;
+            } else if (image.naturalWidth) {
+              if (el.canvas.width !== image.naturalWidth) el.canvas.width = image.naturalWidth;
+              if (el.canvas.height !== image.naturalHeight) el.canvas.height = image.naturalHeight;
+            }
+            ctx.drawImage(image, 0, 0, el.canvas.width, el.canvas.height);
+            hideOverlay();
+            lastFrameAt = Date.now();
+            frameCount += 1;
+          };
+          image.onerror = function () {
+            log('无法解码画面帧');
+          };
+          image.src = 'data:image/jpeg;base64,' + data;
+        }
+
+        /* ---------------------------------------------------------- input uplink */
+
+        function send(message) {
+          if (!socket || socket.readyState !== WebSocket.OPEN) return;
+          if (!isOperator) return;
+          socket.send(JSON.stringify(message));
+        }
+
+        function canvasPoint(event) {
+          var rect = el.canvas.getBoundingClientRect();
+          if (!rect.width || !rect.height) return null;
+          var scaleX = el.canvas.width / rect.width;
+          var scaleY = el.canvas.height / rect.height;
+          return {
+            x: (event.clientX - rect.left) * scaleX,
+            y: (event.clientY - rect.top) * scaleY,
+            canvasWidth: el.canvas.width,
+            canvasHeight: el.canvas.height,
+          };
+        }
+
+        function modifiers(event) {
+          var list = [];
+          if (event.altKey) list.push('alt');
+          if (event.ctrlKey) list.push('ctrl');
+          if (event.metaKey) list.push('meta');
+          if (event.shiftKey) list.push('shift');
+          return list;
+        }
+
+        function buttonName(button) {
+          return button === 2 ? 'right' : button === 1 ? 'middle' : 'left';
+        }
+
+        // Mouse move is throttled to ~20 fps (spec 8.8).
+        var pendingMove = null;
+        var moveTimer = null;
+        function throttledMove(point, mods) {
+          pendingMove = { point: point, mods: mods };
+          if (moveTimer) return;
+          moveTimer = setTimeout(function () {
+            moveTimer = null;
+            if (!pendingMove) return;
+            send({
+              type: 'mouse',
+              action: 'move',
+              x: pendingMove.point.x,
+              y: pendingMove.point.y,
+              canvasWidth: pendingMove.point.canvasWidth,
+              canvasHeight: pendingMove.point.canvasHeight,
+              modifiers: pendingMove.mods,
+            });
+            pendingMove = null;
+          }, 50);
+        }
+
+        el.canvas.addEventListener('mousemove', function (event) {
+          var point = canvasPoint(event);
+          if (point) throttledMove(point, modifiers(event));
+        });
+
+        el.canvas.addEventListener('mousedown', function (event) {
+          var point = canvasPoint(event);
+          if (!point) return;
+          event.preventDefault();
+          send({
+            type: 'mouse',
+            action: 'down',
+            x: point.x,
+            y: point.y,
+            canvasWidth: point.canvasWidth,
+            canvasHeight: point.canvasHeight,
+            button: buttonName(event.button),
+            clickCount: 1,
+            modifiers: modifiers(event),
+          });
+        });
+
+        el.canvas.addEventListener('mouseup', function (event) {
+          var point = canvasPoint(event);
+          if (!point) return;
+          event.preventDefault();
+          send({
+            type: 'mouse',
+            action: 'up',
+            x: point.x,
+            y: point.y,
+            canvasWidth: point.canvasWidth,
+            canvasHeight: point.canvasHeight,
+            button: buttonName(event.button),
+            clickCount: 1,
+            modifiers: modifiers(event),
+          });
+        });
+
+        el.canvas.addEventListener('contextmenu', function (event) {
+          event.preventDefault();
+        });
+
+        el.canvas.addEventListener(
+          'wheel',
+          function (event) {
+            var point = canvasPoint(event);
+            if (!point) return;
+            event.preventDefault();
+            send({
+              type: 'mouse',
+              action: 'wheel',
+              x: point.x,
+              y: point.y,
+              canvasWidth: point.canvasWidth,
+              canvasHeight: point.canvasHeight,
+              deltaX: event.deltaX,
+              deltaY: event.deltaY,
+              modifiers: modifiers(event),
+            });
+          },
+          { passive: false },
+        );
+
+        // Keyboard events are captured at the document level so the operator does
+        // not have to keep the canvas focused.
+        document.addEventListener('keydown', function (event) {
+          if (!isOperator || isTyping(event)) return;
+          // Let the browser handle its own shortcuts when a modifier is held,
+          // except for the common Ctrl+A / Ctrl+C landing inside the page.
+          send({ type: 'key', action: 'down', key: event.key, modifiers: modifiers(event) });
+          if (event.key.length === 1 && !event.ctrlKey && !event.metaKey) {
+            event.preventDefault();
+          }
+        });
+
+        document.addEventListener('keyup', function (event) {
+          if (!isOperator || isTyping(event)) return;
+          send({ type: 'key', action: 'up', key: event.key, modifiers: modifiers(event) });
+        });
+
+        function isTyping(event) {
+          var target = event.target;
+          return target && (target.tagName === 'TEXTAREA' || target.tagName === 'INPUT');
+        }
+
+        /* --------------------------------------------------------------- buttons */
+
+        el.sendText.addEventListener('click', function () {
+          var text = el.text.value;
+          if (!text) return;
+          send({ type: 'text', text: text });
+          log('已发送 ' + text.length + ' 个字符（Input.insertText）');
+        });
+
+        el.clearText.addEventListener('click', function () {
+          el.text.value = '';
+        });
+
+        el.complete.addEventListener('click', function () {
+          if (!isOperator) return;
+          el.complete.disabled = true;
+          send({ type: 'complete' });
+          log('已请求完成，服务器正在校验 resolveWhen…');
+          setTimeout(function () {
+            if (!finished) el.complete.disabled = false;
+          }, 4000);
+        });
+
+        el.reconnect.addEventListener('click', function () {
+          if (socket) {
+            try {
+              socket.close();
+            } catch (_) {}
+          }
+          scheduleReconnect();
+        });
+
+        /* ----------------------------------------------------------------- timers */
+
+        setInterval(function () {
+          if (expiresAtMs) {
+            var remaining = Math.max(0, expiresAtMs - Date.now());
+            var total = Math.floor(remaining / 1000);
+            var mm = String(Math.floor(total / 60)).padStart(2, '0');
+            var ss = String(total % 60).padStart(2, '0');
+            setBadge(
+              el.timer,
+              mm + ':' + ss,
+              remaining < 60000 ? 'err' : remaining < 180000 ? 'warn' : '',
+            );
+          }
+          if (socket && socket.readyState === WebSocket.OPEN && isOperator) {
+            socket.send(JSON.stringify({ type: 'ping', t: Date.now() }));
+          }
+        }, 1000);
+
+        // Watch for a stalled screencast so the operator knows the page froze.
+        setInterval(function () {
+          if (finished || !socket || socket.readyState !== WebSocket.OPEN) return;
+          if (lastFrameAt && Date.now() - lastFrameAt > 5000) {
+            showOverlay('画面已超过 5 秒没有更新，可能正在导航或浏览器无响应…');
+          }
+        }, 2000);
+
+        bootstrap();
+      })();
+    </script>
+  </body>
+</html>

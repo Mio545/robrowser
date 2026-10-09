@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>RoboBrowser Fixture — Frames</title>
+    <style>
+      body {
+        font-family: system-ui, sans-serif;
+        margin: 0;
+        padding: 1rem;
+        background: #fff;
+      }
+      iframe {
+        width: 100%;
+        height: 180px;
+        border: 1px solid #cbd5e1;
+        border-radius: 8px;
+      }
+      button {
+        margin-top: 0.5rem;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Frames fixture</h1>
+    <p data-testid="outer-text">Outer document text.</p>
+    <!-- The inner document is provided inline so the fixture works over file:// -->
+    <iframe
+      id="frame"
+      data-testid="frame"
+      title="Inner frame"
+      srcdoc="&lt;!doctype html&gt;&lt;html&gt;&lt;body style='font-family:system-ui;padding:1rem'&gt;
+        &lt;p data-testid='inner-text'&gt;Inner frame text.&lt;/p&gt;
+        &lt;button data-testid='inner-button' onclick=&quot;this.textContent='Inner clicked'&quot;&gt;Inner button&lt;/button&gt;
+      &lt;/body&gt;&lt;/html&gt;"
+    ></iframe>
+    <button
+      id="outer-button"
+      data-testid="outer-button"
+      onclick="this.textContent = 'Outer clicked'"
+    >
+      Outer button
+    </button>
+  </body>
+</html>

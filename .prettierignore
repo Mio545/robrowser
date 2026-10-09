@@ -1,0 +1,12 @@
+# Prettier ignores build output and scratch helpers. `work/` holds one-off
+# migration scripts used while bootstrapping the repository; they are not part
+# of the deliverable and are not formatted or linted.
+node_modules
+dist
+release
+coverage
+pnpm-lock.yaml
+run
+tmp
+work
+*.tsbuildinfo

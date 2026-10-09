@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>RoboBrowser Fixture — Human check</title>
+    <style>
+      body {
+        font-family: system-ui, sans-serif;
+        margin: 0;
+        min-height: 100vh;
+        display: grid;
+        place-items: center;
+        background: #f8fafc;
+      }
+      main {
+        background: #fff;
+        border: 1px solid #e2e8f0;
+        border-radius: 12px;
+        padding: 1.5rem;
+        width: 360px;
+        text-align: center;
+      }
+      .challenge {
+        font-size: 1.4rem;
+        font-weight: 700;
+        margin: 1rem 0;
+        letter-spacing: 0.1em;
+      }
+      input,
+      button {
+        padding: 0.5rem;
+        border-radius: 6px;
+        border: 1px solid #cbd5e1;
+      }
+      button {
+        background: #16a34a;
+        color: #fff;
+        border: 0;
+        cursor: pointer;
+      }
+      #result {
+        min-height: 1.2rem;
+        margin-top: 0.75rem;
+        font-size: 0.85rem;
+      }
+      .ok {
+        color: #15803d;
+      }
+      .bad {
+        color: #b91c1c;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1 id="prompt">Human check</h1>
+      <p>Type the code shown below and click Verify.</p>
+      <div class="challenge" id="challenge" data-testid="challenge">7F3A</div>
+      <input id="answer" data-testid="answer" aria-label="Verification code" />
+      <button id="verify" data-testid="verify">Verify</button>
+      <p id="result" role="status"></p>
+    </main>
+    <script>
+      // A "fake captcha": the expected answer is fixed so tests are deterministic.
+      // In a real deployment a human would read the image from the takeover stream.
+      const EXPECTED = '7F3A';
+      const result = document.getElementById('result');
+      document.getElementById('verify').addEventListener('click', () => {
+        const value = document.getElementById('answer').value.trim().toUpperCase();
+        if (value === EXPECTED) {
+          result.textContent = 'Verified — continuing.';
+          result.className = 'ok';
+          document.body.setAttribute('data-verified', 'true');
+          document.getElementById('prompt').textContent = 'Verified';
+        } else {
+          result.textContent = 'Incorrect code, try again.';
+          result.className = 'bad';
+          document.body.removeAttribute('data-verified');
+        }
+      });
+    </script>
+  </body>
+</html>

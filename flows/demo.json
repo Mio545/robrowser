@@ -1,0 +1,82 @@
+{
+  "version": "1.0",
+  "id": "demo-login",
+  "name": "Demo: login → dashboard → extract",
+  "variables": {
+    "fixtures": {
+      "type": "const",
+      "value": "../fixtures/"
+    },
+    "username": {
+      "type": "input",
+      "label": "Username",
+      "default": "alice"
+    },
+    "password": {
+      "type": "secret",
+      "key": "DEMO_PASSWORD",
+      "default": "s3cret"
+    }
+  },
+  "steps": [
+    { "id": "open-login", "type": "goto", "url": "{{fixtures}}login.html", "waitUntil": "load" },
+    {
+      "id": "login-page",
+      "type": "waitForPage",
+      "target": "login",
+      "timeout": 10000
+    },
+    {
+      "id": "fill-username",
+      "type": "type",
+      "selector": { "testId": "username" },
+      "value": "{{username}}",
+      "clear": true
+    },
+    {
+      "id": "fill-password",
+      "type": "type",
+      "selector": { "testId": "password" },
+      "value": "{{password}}",
+      "clear": true
+    },
+    {
+      "id": "submit",
+      "type": "click",
+      "selector": {
+        "candidates": [{ "role": "button", "name": "Sign in" }, { "testId": "submit" }]
+      }
+    },
+    { "id": "wait-dashboard", "type": "waitForPage", "target": "dashboard", "timeout": 15000 },
+    {
+      "id": "branch-on-dashboard",
+      "type": "branch",
+      "condition": { "selectorExists": { "testId": "welcome" } },
+      "then": [
+        {
+          "id": "read-orders",
+          "type": "extract",
+          "selector": { "testId": "orders-value" },
+          "into": "orders"
+        },
+        {
+          "id": "read-activities",
+          "type": "extract",
+          "selector": { "testId": "activity-item" },
+          "into": "activities",
+          "all": true
+        },
+        { "id": "shot", "type": "screenshot", "saveTo": "dashboard.png", "fullPage": true }
+      ],
+      "else": [
+        {
+          "id": "read-error",
+          "type": "extract",
+          "selector": { "css": "#error" },
+          "into": "loginError"
+        }
+      ]
+    }
+  ],
+  "onError": { "retry": 1, "backoff": "exponential", "screenshot": true }
+}

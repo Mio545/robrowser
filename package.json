@@ -1,0 +1,43 @@
+{
+  "name": "robrowser",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Visual web automation desktop app + headless server (CDP-based, shared FlowModel)",
+  "license": "MIT",
+  "engines": {
+    "node": ">=20"
+  },
+  "packageManager": "pnpm@9.12.0",
+  "scripts": {
+    "build": "pnpm -r --filter \"./packages/**\" run build",
+    "typecheck": "pnpm -r --filter \"./packages/**\" run typecheck",
+    "lint": "eslint . --ext .ts,.tsx --max-warnings 0",
+    "lint:fix": "eslint . --ext .ts,.tsx --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "clean": "pnpm -r exec rimraf dist && rimraf node_modules/.cache",
+    "desktop:dev": "pnpm --filter desktop run dev",
+    "desktop:build": "pnpm --filter desktop run build",
+    "desktop:package": "pnpm --filter desktop run package",
+    "server": "pnpm --filter server run start",
+    "verify": "pnpm lint && pnpm build && pnpm test",
+    "test:desktop": "node tests/desktop/smoke.mjs && node tests/desktop/manual-e2e.mjs",
+    "test:desktop:smoke": "node tests/desktop/smoke.mjs",
+    "test:desktop:manual": "node tests/desktop/manual-e2e.mjs"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.10",
+    "@typescript-eslint/eslint-plugin": "^7.16.0",
+    "@typescript-eslint/parser": "^7.16.0",
+    "eslint": "^8.57.0",
+    "eslint-config-prettier": "^9.1.0",
+    "eslint-plugin-import": "^2.29.1",
+    "playwright": "^1.64.0",
+    "prettier": "^3.3.2",
+    "rimraf": "^5.0.9",
+    "typescript": "^5.5.3",
+    "vitest": "^2.0.3"
+  }
+}

@@ -1,0 +1,687 @@
+/*
+ * RoboBrowser desktop theme (spec 9).
+ *
+ * IMPORTANT — native view alignment
+ * ---------------------------------
+ * The embedded Chromium surface is a real `WebContentsView` painted by the
+ * Electron main process at absolute pixel bounds. `main/index.ts` computes:
+ *
+ *   left   = round(width  * 0.38) + 8      -> this file: 38% column + 8px gutter
+ *   top    = 56 (header) + 40 (bar) + 8    -> this file: 40px row + 8px gutter
+ *   bottom = window height - 250 - 8       -> this file: 8px gap + 250px log row
+ *
+ * So `.rb-body` MUST start exactly at `--header-height` and `.rb-right` MUST be
+ * the grid `40px 8px 1fr 8px 250px`. Do not add borders, margins or banners
+ * between the header and the body, or the native view will drift.
+ */
+:root {
+  --header-height: 56px;
+  --preview-bar-height: 40px;
+  --log-panel-height: 250px;
+  --view-inset: 8px;
+  --left-ratio: 38%;
+
+  --bg: #0b1220;
+  --bg-raised: #111a2e;
+  --bg-panel: #0f172a;
+  --border: #1e293b;
+  --border-strong: #334155;
+  --text: #e2e8f0;
+  --text-muted: #94a3b8;
+  --primary: #2563eb;
+  --primary-hover: #1d4ed8;
+  --danger: #dc2626;
+  --ok: #16a34a;
+  --warn: #d97706;
+
+  --mono: 'Cascadia Mono', 'JetBrains Mono', Consolas, 'Courier New', monospace;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family:
+    'Segoe UI',
+    'Microsoft YaHei',
+    system-ui,
+    -apple-system,
+    sans-serif;
+  font-size: 13px;
+  overflow: hidden;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+  color: inherit;
+}
+
+button {
+  background: var(--bg-raised);
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  padding: 5px 10px;
+  cursor: pointer;
+}
+
+button:hover:not(:disabled) {
+  border-color: #64748b;
+  background: #17233c;
+}
+
+button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+button.rb-primary {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: #fff;
+}
+
+button.rb-primary:hover:not(:disabled) {
+  background: var(--primary-hover);
+}
+
+button.rb-danger {
+  background: transparent;
+  border-color: var(--danger);
+  color: #fca5a5;
+}
+
+input,
+select,
+textarea {
+  background: #0a1120;
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  padding: 5px 8px;
+  outline: none;
+}
+
+input:focus,
+select:focus,
+textarea:focus {
+  border-color: var(--primary);
+}
+
+code {
+  font-family: var(--mono);
+  background: #0a1120;
+  padding: 1px 4px;
+  border-radius: 4px;
+}
+
+/* ------------------------------------------------------------------ shell */
+
+.rb-app {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+}
+
+.rb-header {
+  flex: 0 0 var(--header-height);
+  height: var(--header-height);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 10px;
+  background: var(--bg-raised);
+  border-bottom: 1px solid var(--border);
+  z-index: 60;
+}
+
+.rb-logo {
+  font-weight: 700;
+  color: #7dd3fc;
+  letter-spacing: 0.4px;
+}
+
+.rb-flow-name {
+  width: 200px;
+  font-weight: 600;
+}
+
+.rb-flow-id {
+  font-family: var(--mono);
+  font-size: 11px;
+}
+
+.rb-flow-picker {
+  max-width: 160px;
+}
+
+.rb-grow {
+  flex: 1 1 auto;
+}
+
+.rb-muted {
+  color: var(--text-muted);
+}
+
+.rb-status {
+  color: #86efac;
+  max-width: 320px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Overlay: never part of the layout, so the native view cannot drift. */
+.rb-banner {
+  position: absolute;
+  top: var(--header-height);
+  left: 0;
+  right: 0;
+  z-index: 55;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 12px;
+  font-family: var(--mono);
+  font-size: 12px;
+}
+
+.rb-banner-error {
+  background: #450a0a;
+  border-bottom: 1px solid #7f1d1d;
+  color: #fecaca;
+}
+
+.rb-banner button {
+  margin-left: auto;
+}
+
+/* ------------------------------------------------------------------- body */
+
+.rb-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+}
+
+.rb-left {
+  flex: 0 0 var(--left-ratio);
+  width: var(--left-ratio);
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid var(--border);
+  background: var(--bg-panel);
+}
+
+.rb-right {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: grid;
+  grid-template-rows:
+    var(--preview-bar-height)
+    var(--view-inset)
+    minmax(0, 1fr)
+    var(--view-inset)
+    var(--log-panel-height);
+  background: var(--bg);
+}
+
+/* -------------------------------------------------------- flow editor (L) */
+
+.rb-editor {
+  flex: 0 0 300px;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.rb-editor-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.rb-palette {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border);
+  background: #0c1424;
+  max-height: 96px;
+  overflow: auto;
+}
+
+.rb-palette button {
+  padding: 3px 7px;
+  font-size: 12px;
+}
+
+.rb-canvas {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.rb-canvas .react-flow__node {
+  background: var(--bg-raised);
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  color: var(--text);
+  font-size: 11px;
+  width: 210px;
+  padding: 6px 8px;
+  white-space: pre-line;
+  text-align: left;
+}
+
+.rb-canvas .react-flow__node.selected {
+  border-color: #60a5fa;
+  box-shadow: 0 0 0 2px rgb(96 165 250 / 35%);
+}
+
+.rb-canvas .react-flow__edge-path {
+  stroke: #475569;
+  stroke-width: 1.6;
+}
+
+.rb-tabs {
+  display: flex;
+  gap: 6px;
+  padding: 6px 8px 0;
+}
+
+.rb-tabs button.rb-tab-active {
+  border-color: var(--primary);
+  color: #bfdbfe;
+}
+
+.rb-tab-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+}
+
+/* ------------------------------------------------------------- panels */
+
+.rb-panel {
+  padding: 8px 10px 16px;
+}
+
+.rb-panel h2,
+.rb-log h2,
+.rb-drawer h2 {
+  font-size: 13px;
+  margin: 8px 0;
+}
+
+.rb-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.rb-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+
+.rb-row > input,
+.rb-row > select {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.rb-var {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px;
+  margin-bottom: 8px;
+  background: #0c1424;
+}
+
+.rb-field {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin-bottom: 8px;
+}
+
+.rb-field > label {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.rb-field > input,
+.rb-field > select,
+.rb-field > textarea {
+  width: 100%;
+}
+
+.rb-field > textarea {
+  min-height: 90px;
+  font-family: var(--mono);
+  resize: vertical;
+}
+
+.rb-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--text-muted);
+}
+
+/* --------------------------------------------------------- preview pane (R) */
+
+.rb-preview-bar {
+  grid-row: 1;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 var(--view-inset);
+  overflow: hidden;
+}
+
+.rb-preview-bar input {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-family: var(--mono);
+  font-size: 11px;
+}
+
+.rb-preview-bar .rb-muted {
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+}
+
+.rb-preview-label {
+  color: #7dd3fc;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+/*
+ * Row 3 of the grid is the exact rectangle the main process paints the native
+ * `WebContentsView` over. The placeholder is only visible before the view is
+ * added (or while it is detached) — it must never be interactive.
+ */
+.rb-preview-pane {
+  grid-row: 3;
+  position: relative;
+  margin: 0 var(--view-inset);
+  border: 1px dashed #23324d;
+  border-radius: 6px;
+  background: repeating-linear-gradient(45deg, #0d1526 0 12px, #0c1322 12px 24px);
+  pointer-events: none;
+}
+
+.rb-preview-placeholder {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* ------------------------------------------------------------- run log (R) */
+
+.rb-log {
+  grid-row: 5;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  margin: 0 var(--view-inset);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-panel);
+  overflow: hidden;
+}
+
+.rb-log-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.rb-log-head h2 {
+  margin: 0;
+}
+
+.rb-log-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  padding: 4px 8px;
+  font-family: var(--mono);
+  font-size: 11px;
+}
+
+.rb-log-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 4px;
+  border-left: 3px solid transparent;
+  border-radius: 3px;
+}
+
+.rb-log-detail {
+  color: var(--text-muted);
+  word-break: break-all;
+}
+
+.rb-log-start {
+  color: #93c5fd;
+}
+.rb-log-ok {
+  color: #86efac;
+}
+.rb-log-fail {
+  color: #fca5a5;
+}
+.rb-log-skip {
+  color: #fcd34d;
+}
+.rb-log-manual {
+  color: #f0abfc;
+}
+.rb-log-status {
+  color: #cbd5e1;
+}
+
+.rb-active {
+  border-left-color: #3b82f6;
+  background: rgb(59 130 246 / 12%);
+}
+
+.rb-failed {
+  border-left-color: var(--danger);
+  background: rgb(220 38 38 / 14%);
+}
+
+.rb-thumb {
+  max-height: 60px;
+  border: 1px solid var(--border-strong);
+  border-radius: 4px;
+}
+
+/* ------------------------------------------------------------------ badges */
+
+.rb-badge {
+  border-radius: 999px;
+  padding: 1px 8px;
+  font-size: 11px;
+  border: 1px solid var(--border-strong);
+}
+
+.rb-badge-running {
+  color: #bfdbfe;
+  border-color: #1d4ed8;
+  background: rgb(37 99 235 / 20%);
+}
+.rb-badge-success {
+  color: #bbf7d0;
+  border-color: #15803d;
+  background: rgb(22 163 74 / 18%);
+}
+.rb-badge-failed {
+  color: #fecaca;
+  border-color: #b91c1c;
+  background: rgb(220 38 38 / 18%);
+}
+.rb-badge-aborted {
+  color: #fed7aa;
+  border-color: #c2410c;
+  background: rgb(217 119 6 / 18%);
+}
+
+/* ------------------------------------------------------------------ overlays */
+
+.rb-drawer {
+  position: absolute;
+  top: var(--header-height);
+  right: 0;
+  bottom: 0;
+  width: 380px;
+  z-index: 45;
+  background: var(--bg-panel);
+  border-left: 1px solid var(--border-strong);
+  box-shadow: -12px 0 28px rgb(0 0 0 / 45%);
+  padding: 8px 12px 16px;
+  overflow: auto;
+}
+
+.rb-drawer-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.rb-input-drawer {
+  right: auto;
+  left: 0;
+  bottom: 0;
+  top: auto;
+  max-height: 46%;
+  width: var(--left-ratio);
+  border-left: none;
+  border-top: 1px solid var(--border-strong);
+  border-right: 1px solid var(--border-strong);
+  box-shadow: 0 -12px 28px rgb(0 0 0 / 45%);
+}
+
+.rb-run-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.rb-run-list li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 2px;
+  border-bottom: 1px solid var(--border);
+}
+
+.rb-run-name {
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rb-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgb(2 6 23 / 72%);
+}
+
+.rb-modal {
+  width: min(860px, 90vw);
+  max-height: 82vh;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  box-shadow: 0 24px 60px rgb(0 0 0 / 60%);
+}
+
+.rb-modal-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.rb-modal-head h2 {
+  margin: 0;
+}
+
+.rb-modal-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+/*
+ * The manual prompt is anchored to the LEFT column on purpose: the embedded
+ * Chromium surface is a native `WebContentsView` painted above this DOM, so a
+ * centred dialog would have its buttons buried under the browser. Keeping the
+ * prompt in the left column leaves the browser fully usable, which is exactly
+ * what the manual step needs.
+ */
+.rb-manual-backdrop {
+  top: var(--header-height);
+  left: 0;
+  right: auto;
+  bottom: 0;
+  width: var(--left-ratio);
+  align-items: flex-start;
+  padding: 12px;
+}
+
+.rb-manual {
+  width: 100%;
+  max-height: calc(100% - 8px);
+  overflow: auto;
+}
+
+.rb-code {
+  flex: 1 1 auto;
+  min-height: 320px;
+  font-family: var(--mono);
+  font-size: 11px;
+  white-space: pre;
+  resize: vertical;
+}

@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>RoboBrowser Fixture — Dashboard</title>
+    <style>
+      body {
+        font-family: system-ui, sans-serif;
+        margin: 0;
+        background: #0f172a;
+        color: #e2e8f0;
+      }
+      header {
+        padding: 1rem 1.5rem;
+        background: #1e293b;
+        display: flex;
+        justify-content: space-between;
+      }
+      main {
+        padding: 1.5rem;
+      }
+      .cards {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+        gap: 1rem;
+      }
+      .card {
+        background: #1e293b;
+        padding: 1rem;
+        border-radius: 10px;
+      }
+      .card h3 {
+        margin: 0 0 0.5rem;
+        font-size: 0.8rem;
+        color: #94a3b8;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+      }
+      .value {
+        font-size: 1.6rem;
+        font-weight: 700;
+      }
+      ul {
+        margin-top: 1.5rem;
+        padding-left: 1.2rem;
+      }
+      li {
+        line-height: 1.8;
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <strong data-testid="welcome">Welcome back</strong>
+      <span id="org">Acme Corp</span>
+    </header>
+    <main>
+      <div class="cards">
+        <section class="card" data-testid="metric-orders">
+          <h3>Orders</h3>
+          <span class="value" data-testid="orders-value">128</span>
+        </section>
+        <section class="card" data-testid="metric-revenue">
+          <h3>Revenue</h3>
+          <span class="value" data-testid="revenue-value">$42,000</span>
+        </section>
+        <section class="card" data-testid="metric-users">
+          <h3>Active users</h3>
+          <span class="value" data-testid="users-value">2,340</span>
+        </section>
+      </div>
+      <h2>Recent activity</h2>
+      <ul id="activity">
+        <li class="activity-item" data-testid="activity-item">Order #1042 shipped</li>
+        <li class="activity-item" data-testid="activity-item">Order #1041 delivered</li>
+        <li class="activity-item" data-testid="activity-item">New customer signed up</li>
+      </ul>
+    </main>
+  </body>
+</html>

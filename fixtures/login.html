@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>RoboBrowser Fixture — Sign in</title>
+    <style>
+      :root {
+        color-scheme: light;
+      }
+      body {
+        font-family: system-ui, sans-serif;
+        margin: 0;
+        min-height: 100vh;
+        display: grid;
+        place-items: center;
+        background: #f5f6f8;
+      }
+      main {
+        background: #fff;
+        padding: 2rem;
+        border-radius: 12px;
+        box-shadow: 0 8px 24px rgb(0 0 0 / 8%);
+        width: 320px;
+      }
+      h1 {
+        font-size: 1.15rem;
+        margin: 0 0 1rem;
+      }
+      label {
+        display: block;
+        font-size: 0.8rem;
+        color: #444;
+        margin: 0.75rem 0 0.25rem;
+      }
+      input {
+        width: 100%;
+        padding: 0.5rem;
+        box-sizing: border-box;
+        border: 1px solid #ccc;
+        border-radius: 6px;
+      }
+      button {
+        margin-top: 1rem;
+        width: 100%;
+        padding: 0.6rem;
+        border: 0;
+        border-radius: 6px;
+        background: #2563eb;
+        color: #fff;
+        font-weight: 600;
+        cursor: pointer;
+      }
+      .error {
+        color: #b91c1c;
+        font-size: 0.8rem;
+        min-height: 1rem;
+        margin-top: 0.5rem;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Sign in</h1>
+      <form id="login-form" action="dashboard.html" method="get">
+        <label for="username">Username</label>
+        <input id="username" name="username" data-testid="username" autocomplete="username" />
+        <label for="password">Password</label>
+        <input
+          id="password"
+          name="password"
+          type="password"
+          data-testid="password"
+          autocomplete="current-password"
+        />
+        <button id="submit" type="submit" data-testid="submit">Sign in</button>
+        <p class="error" id="error" role="alert"></p>
+      </form>
+    </main>
+    <script>
+      // Faithful-enough fixture behaviour: the form only submits when both fields
+      // are non-empty. This mimics client-side validation a real site would do.
+      const form = document.getElementById('login-form');
+      const error = document.getElementById('error');
+      form.addEventListener('submit', (event) => {
+        const username = document.getElementById('username').value.trim();
+        const password = document.getElementById('password').value;
+        if (!username || !password) {
+          event.preventDefault();
+          error.textContent = 'Username and password are required.';
+          return;
+        }
+        error.textContent = '';
+      });
+    </script>
+  </body>
+</html>

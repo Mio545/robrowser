@@ -1,0 +1,44 @@
+# electron-builder configuration (spec 2 / 10).
+#
+# The renderer is bundled by Vite into dist/renderer; tsc emits the main and
+# preload bundles into dist/main and dist/preload. Only runtime `dependencies`
+# are installed into the app, which is why React/Vite/TypeScript live in
+# devDependencies while better-sqlite3/pino/zod @robrowser/* are real deps.
+appId: com.robrowser.desktop
+productName: RoboBrowser
+copyright: Copyright © 2024 RoboBrowser
+directories:
+  output: release
+  buildResources: build
+
+files:
+  - dist/**/*
+  - package.json
+  - '!**/*.map'
+
+# Native module: rebuilt for the bundled Electron ABI at package time.
+npmRebuild: true
+asarUnpack:
+  - '**/*.node'
+
+win:
+  target:
+    - nsis
+  artifactName: ${productName}-${version}-setup.${ext}
+
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+
+mac:
+  target:
+    - dmg
+  category: public.app-category.developer-tools
+
+linux:
+  target:
+    - AppImage
+  category: Development
+
+extraMetadata:
+  main: dist/main/index.js

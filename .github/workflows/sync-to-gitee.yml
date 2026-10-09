@@ -19,5 +19,5 @@ jobs:
           dst_token: ${{ secrets.GITEE_TOKEN }}
           account_type: user
           force_update: true
-          src_token: ${{ secrets.GITHUB_TOKEN }}  # 自动获取 GitHub 官方提供的临时令牌，用于读取私有仓库
+          src_token: ${{ secrets.MY_GITHUB_TOKEN }}  # 自动获取 GitHub 令牌，用于读取私有仓库
           static_list: "robrowser"                # 白名单：只同步 robrowser 这一个仓库，忽略其他

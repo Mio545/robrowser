@@ -25,12 +25,13 @@ stages:
         nodeVersion: 18.20.4
         commands:
           - set -e
+          - echo "token_len=${#GITHUB_TOKEN}, branch=${GITEE_BRANCH}"
           - git config --global user.email "gitee-go-bot@users.noreply.gitee.com"
           - git config --global user.name "gitee-go-bot"
           - git remote remove github 2> /dev/null || true
           - git remote add github "https://Mio545:${GITHUB_TOKEN}@github.com/Mio545/robrowser.git"
-          - git push github "HEAD:${GITEE_BRANCH}" --force
-          - git push github --tags --force
+          - GIT_TERMINAL_PROMPT=0 git push github "HEAD:${GITEE_BRANCH}" --force
+          - GIT_TERMINAL_PROMPT=0 git push github --tags --force
           - echo "synced to github"
         caches:
           - ~/.npm

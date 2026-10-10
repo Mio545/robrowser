@@ -1,0 +1,38 @@
+version: '1.0'
+name: sync-to-github
+displayName: 同步到GitHub
+
+triggers:
+  trigger: auto
+  push:
+    branches:
+      precise:
+        - master
+
+variables:
+  global:
+    - GITHUB_TOKEN
+
+stages:
+  - name: sync
+    displayName: 同步到GitHub
+    strategy: naturally
+    trigger: auto
+    steps:
+      - step: build@nodejs
+        name: push_github
+        displayName: 推送到GitHub
+        nodeVersion: 18.20.4
+        commands:
+          - set -e
+          - git config --global user.email "gitee-go-bot@users.noreply.gitee.com"
+          - git config --global user.name "gitee-go-bot"
+          - git remote remove github 2> /dev/null || true
+          - git remote add github "https://Mio545:${GITHUB_TOKEN}@github.com/Mio545/robrowser.git"
+          - git push github "HEAD:${GITEE_BRANCH}" --force
+          - git push github --tags --force
+          - echo "synced to github"
+        caches:
+          - ~/.npm
+        strategy:
+          retry: '0'

@@ -25,14 +25,13 @@ stages:
         nodeVersion: 18.20.4
         commands:
           - set -e
+          - echo "token_len=${#GITHUB_TOKEN}, branch=${GITEE_BRANCH}"
           - git config --global user.email "gitee-go-bot@users.noreply.gitee.com"
           - git config --global user.name "gitee-go-bot"
           - if [ -f "$(git rev-parse --git-dir)/shallow" ]; then echo "shallow clone, unshallowing..."; GIT_TERMINAL_PROMPT=0 git fetch --unshallow origin; fi
-          - git fetch origin --tags --force
           - git remote remove github 2> /dev/null || true
           - git remote add github "https://Mio545:${GITHUB_TOKEN}@github.com/Mio545/robrowser.git"
-          - GIT_TERMINAL_PROMPT=0 git push --no-thin github "HEAD:${GITEE_BRANCH}" --force
-          - GIT_TERMINAL_PROMPT=0 git push --no-thin github --tags --force
+          - ok=0; for i in 1 2 3; do if GIT_TERMINAL_PROMPT=0 git push --no-thin github "HEAD:${GITEE_BRANCH}" --force; then ok=1; break; fi; echo "第 $i 次推送失败，5 秒后重试..."; sleep 5; done; [ "$ok" = "1" ]
           - echo "synced to github"
         caches:
           - ~/.npm

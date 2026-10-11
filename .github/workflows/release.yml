@@ -84,7 +84,12 @@ jobs:
                 -H "Authorization: token ${GITHUB_TOKEN}" \
                 "https://api.github.com/repos/${GITHUB_REPO}/releases/tags/${candidate}")
               if [ "$code" = "404" ]; then tag="$candidate"; break; fi
-              echo "  ${candidate} 已有 GitHub 发行版，跳过"
+              if [ "$code" = "200" ]; then
+                echo "  ${candidate} 已有 GitHub 发行版，跳过"
+              else
+                # 401/403 等异常也要说清楚，否则会静默不构建
+                echo "::warning::查询 ${candidate} 的发行版返回 HTTP ${code}（既不是 404 也不是 200）"
+              fi
             done < /tmp/tags
             if [ -z "$tag" ]; then
               echo "skip=true" >> "$GITHUB_OUTPUT"

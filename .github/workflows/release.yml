@@ -130,6 +130,9 @@ jobs:
           tag_name: ${{ steps.vars.outputs.tag }}
           files: installers/*
           fail_on_unmatched_files: true
+          # Re-running the workflow for a tag that already has assets (e.g. after
+          # trimming the installers) must replace them, not fail with HTTP 422.
+          overwrite_files: true
           # `v0.1.0-beta` -> prerelease; a plain `v1.0.0` stays a full release.
           prerelease: ${{ github.event_name == 'workflow_dispatch' && inputs.prerelease || contains(steps.vars.outputs.tag, '-') }}
 

@@ -376,6 +376,38 @@ node packages/server/dist/cli.js import run/demo.cjs > flows/from-script.json
 - raw-cdp 的 `extract` 属性读取曾把属性名未转义地拼进字符串字面量，生成**无法解析**
   的脚本；本次一并修复，并由快照与 `new Function()` 语法断言覆盖。
 
+## 发布
+
+安装包由 CI 矩阵构建（`.github/workflows/release.yml`），一次产出三个平台的四种产物：
+Windows（nsis 安装包）、Linux（AppImage）、macOS（Apple Silicon 与 Intel 各一个 dmg）。
+
+```bash
+git tag v0.2.0 && git push origin v0.2.0      # 触发矩阵构建并挂到 GitHub 发行版
+```
+
+- **Gitee 是源仓库**：工作流直接从 Gitee 取标签构建（公开仓库无需凭据），
+  因此**不依赖** Gitee→GitHub 的镜像流水线；另有每 6 小时的定时任务补建漏掉的标签。
+- 也可在 Actions 页面手动 `workflow_dispatch`，填入已有标签只为它补出包。
+
+### 把安装包也放到 Gitee
+
+GitHub runner 向 Gitee 上传约 95MB 的附件**实测不可用**（18 分钟零字节落地），
+所以在国内机器上补一步即可（同一批文件约 4 MiB/s）：
+
+```bash
+pnpm release:gitee v0.2.0                              # 从 GitHub 发行版拉取资产再上传
+pnpm release:gitee v0.2.0 --source local --dir packages/desktop/release
+pnpm release:gitee v0.2.0 --dry-run                    # 只检查，不上传
+```
+
+- 凭证从**系统凭据库**读取（`git credential fill`，Windows 上是凭据管理器），
+  仓库里不放任何令牌；也可用环境变量 `GITEE_TOKEN` 覆盖。
+- Gitee 的硬限制（实测而非照文档）：**单附件 100 MiB**、**单仓库发行版附件合计 1 GiB**
+  —— 四个 Electron 安装包就占约 360 MiB，所以每两三个版本就要清一次旧附件。
+  脚本上传前会检查这两条并给出明确提示。
+- 删除类接口（删附件/删发行版/删标签）对个人令牌一律返回 401，
+  超额时需到 Gitee 网页上手动删除旧版本的附件。
+
 ## 测试
 
 ```bash

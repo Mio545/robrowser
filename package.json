@@ -21,6 +21,7 @@
     "desktop:dev": "pnpm --filter desktop run dev",
     "desktop:build": "pnpm --filter desktop run build",
     "desktop:package": "pnpm --filter desktop run package",
+    "release:gitee": "node scripts/publish-gitee-release.mjs",
     "server": "pnpm --filter server run start",
     "verify": "pnpm lint && pnpm build && pnpm test",
     "test:desktop": "node tests/desktop/smoke.mjs && node tests/desktop/manual-e2e.mjs",

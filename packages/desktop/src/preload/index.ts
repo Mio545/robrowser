@@ -10,6 +10,7 @@ import type {
   ExportResponse,
   FlowSummary,
   HostStatus,
+  ImportResponse,
   MainEvents,
   ManualResolveResponse,
   RoboBrowserApi,
@@ -30,6 +31,8 @@ const CHANNELS = {
   stopRun: 'runs:stop',
   exportScript: 'export:script',
   saveScript: 'export:save',
+  importScript: 'import:script',
+  openScript: 'import:open',
   resolveManual: 'manual:resolve',
   hostStatus: 'host:status',
   setBrowserViewVisible: 'browser:view-visible',
@@ -53,6 +56,9 @@ const api: RoboBrowserApi & { navigate(url: string): Promise<{ ok: boolean }> } 
       ok: boolean;
       path?: string;
     }>,
+  importScript: (source, target) =>
+    ipcRenderer.invoke(CHANNELS.importScript, source, target) as Promise<ImportResponse>,
+  openScript: () => ipcRenderer.invoke(CHANNELS.openScript) as Promise<ImportResponse>,
   resolveManual: (stepId) =>
     ipcRenderer.invoke(CHANNELS.resolveManual, stepId) as Promise<ManualResolveResponse>,
   navigate: (url) => ipcRenderer.invoke(CHANNELS.navigate, url) as Promise<{ ok: boolean }>,

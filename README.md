@@ -5,7 +5,8 @@ Electron 桌面宿主编排器运行，也能在无桌面的 Linux 服务器上�
 两者共用 `@robrowser/core` 的引擎与 `@robrowser/browser` 的 CDP 适配层。
 
 - 自动化以 **CDP 直连为主 + 页面 JS 注入为辅**（不使用 Selenium/Puppeteer 语义层）。
-- 流程可视化编排（React Flow 节点图），可一键导出为 **Playwright** 或 **裸 CDP** 脚本。
+- 流程可视化编排（React Flow 节点图），可一键导出为 **Playwright** 或 **裸 CDP** 脚本；
+  导出脚本也能反向导入，重新得到可编辑的流程。
 - 遇到验证码/人机检测时支持 **远程人工接管**：另一台电脑打开接管页面即可看到实时画面
   并用鼠标键盘操作服务器上的浏览器，处理完成后流程自动恢复。
 
@@ -17,7 +18,7 @@ robrowser/
 ├── fixtures/                     # 本地 HTML fixture（测试与示例流程使用）
 ├── flows/demo.json               # 可运行的示例流程
 ├── packages/
-│   ├── core/                     # FlowModel schema、引擎、步骤、导出器、存储抽象
+│   ├── core/                     # FlowModel schema、引擎、步骤、导出器/导入器、存储抽象
 │   ├── browser/                  # CDPSession、remote/electron 适配层、screencast、input、metrics
 │   ├── desktop/                  # Electron 主进程 + preload + React 渲染进程
 │   └── server/                   # CLI、Fastify REST/WS、SQLite 队列、worker、远程接管
@@ -90,6 +91,8 @@ pnpm --filter @robrowser/desktop package
   `log 250px` / `inset 8px` / `left 38%`）。这两处常量必须同步修改；
 - 下方 **RunLogPanel**：实时 `step:start` / `step:ok` / `step:fail` 事件流；
 - **ExportDialog**：预览并保存 Playwright / raw-cdp 脚本；
+- **ImportDialog**：粘贴或打开 Playwright / raw-cdp 脚本，还原为可编辑流程，
+  并列出无法映射的语句；
 - `manual` 步骤弹出本地窗口，用户在内嵌浏览器里操作后点“完成并继续”。
 
 关于原生视图与覆盖层（实现细节，修改布局时务必留意）：
@@ -119,6 +122,7 @@ pnpm --filter @robrowser/desktop package
 automate run      <flow.json> [--headless|--headful] [--chrome <path>] [--out <dir>] [--var k=v]
 automate validate <flow.json>
 automate export   <flow.json> --target playwright|raw-cdp [--out file]
+automate import   <script.js> [--target playwright|raw-cdp] [--out flow.json]
 automate serve    [--host <host>] [--port <port>]
 ```
 
@@ -334,6 +338,43 @@ node run/demo.cjs
 - raw-cdp 导出是自包含脚本：内置 `cdp.send` / `evaluate` / `waitFor` /
   `clickSelector` / `typeInto` 辅助函数，可直接 `node script.cjs` 运行；
 - 两者都有快照测试（`packages/core/src/exporters/__snapshots__/`），保证输出稳定。
+
+## 脚本导入
+
+导入是导出的逆过程：把已经生成的（或手写的）脚本还原成 `FlowModel`，
+重新在节点图里编辑。**脚本只作为数据解析，从不 `eval` / `new Function` / `vm` 执行**，
+因此导入来路不明的脚本是安全的。
+
+```bash
+# 类型可省略：默认从脚本内容自动识别（Playwright / raw-cdp）
+node packages/server/dist/cli.js import run/demo.cjs --out flows/from-script.json
+node packages/server/dist/cli.js import run/demo-raw.cjs --target raw-cdp --out flows/from-raw.json
+
+# 不指定 --out 时把流程 JSON 打到 stdout，方便管道处理
+node packages/server/dist/cli.js import run/demo.cjs > flows/from-script.json
+```
+
+- **往返幂等**：`export(import(export(flow))) === export(flow)`，两个目标都成立
+  （见 `packages/core/src/importers/importers.test.ts`）。RoboBrowser 导出的脚本带
+  `// <id>: <type>` 锚点注释，步骤 id 与类型因此能精确还原；
+- **手写脚本**同样支持常用写法：`page.goto` / `page.fill(sel, val)` /
+  `locator.click()` / `pressSequentially` / `selectOption` / `hover` /
+  `waitForSelector` / `waitForURL` / `page.screenshot`，
+  以及 `if (...) { ... } else { ... }`（分支）、
+  `for` 循环、`vars["x"] = …`（变量）等；
+- **无法映射的语句会以 warning 形式返回**（CLI 打到 stderr，桌面端列在对话框里），
+  不会静默丢弃；`automate import` 在有 warning 时依然成功，退出码为 0；
+- **导出的信息缺失是有边界、可预期的**，因为脚本里本就没有这些字段：
+
+  | 字段 | 原因 |
+  | ---- | ---- |
+  | `secret` / `env` | 两者的脚本形式完全相同（都是 `process.env["KEY"]`），统一还原为 `env` |
+  | `input.label` | 未写入脚本，还原时用变量名代替 |
+  | `pageIs` | 无运行时表达，导出为 `true /* pageIs: … */` 注释，可还原 |
+  | `waitForPage.timeout`、`loop.maxIterations`、`manual.resolveWhen` / `notify` / `timeoutMs`、`waitForDownload.saveTo` | 导出器不输出 |
+
+- raw-cdp 的 `extract` 属性读取曾把属性名未转义地拼进字符串字面量，生成**无法解析**
+  的脚本；本次一并修复，并由快照与 `new Function()` 语法断言覆盖。
 
 ## 测试
 

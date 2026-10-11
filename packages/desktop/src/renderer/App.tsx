@@ -19,6 +19,7 @@ import { VariablePanel } from './components/VariablePanel';
 import { RunLogPanel } from './components/RunLogPanel';
 import { BrowserPreview } from './components/BrowserPreview';
 import { ExportDialog } from './components/ExportDialog';
+import { ImportDialog } from './components/ImportDialog';
 import { blankFlow } from './model';
 
 /** A `manual` step waiting on the operator. */
@@ -48,6 +49,7 @@ export function App(): React.ReactElement {
   const [manualPrompt, setManualPrompt] = useState<ManualPrompt | null>(null);
   const [manualBusy, setManualBusy] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
   const [tab, setTab] = useState<LeftTab>('config');
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -258,9 +260,9 @@ export function App(): React.ReactElement {
    * not need the browser hide it while they are open.
    */
   useEffect(() => {
-    const overlayOpen = exportOpen || showHistory;
+    const overlayOpen = exportOpen || importOpen || showHistory;
     void window.robrowser.setBrowserViewVisible(!overlayOpen).catch(() => undefined);
-  }, [exportOpen, showHistory]);
+  }, [exportOpen, importOpen, showHistory]);
 
   const navigate = useCallback((url: string): void => {
     const target = url.trim();
@@ -305,6 +307,7 @@ export function App(): React.ReactElement {
         </select>
         <button onClick={() => setShowHistory((open) => !open)}>历史</button>
         <button onClick={() => setExportOpen(true)}>导出脚本</button>
+        <button onClick={() => setImportOpen(true)}>导入脚本</button>
         <button
           className="rb-primary"
           onClick={() => void startRun()}
@@ -430,6 +433,19 @@ export function App(): React.ReactElement {
       )}
 
       {exportOpen && <ExportDialog flow={flow} onClose={() => setExportOpen(false)} />}
+
+      {importOpen && (
+        <ImportDialog
+          onClose={() => setImportOpen(false)}
+          onImported={(imported, summary) => {
+            setFlow(imported);
+            setSelectedStepId(imported.steps[0]?.id ?? null);
+            setImportOpen(false);
+            setError(null);
+            setStatus(summary);
+          }}
+        />
+      )}
 
       {inputVars.length > 0 && !running && (
         <div className="rb-drawer rb-input-drawer">

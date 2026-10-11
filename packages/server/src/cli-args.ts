@@ -7,6 +7,7 @@
  *   automate run <flow.json> [--headless|--headful] [--chrome <path>] [--out <dir>] [--var k=v]
  *   automate validate <flow.json>
  *   automate export <flow.json> --target playwright|raw-cdp [--out <file>]
+ *   automate import <script.js> [--target playwright|raw-cdp] [--out <flow.json>]
  *   automate serve [--port <n>] [--host <h>]
  *   automate takeover <flow.json> [--headless]         # CLI run that allows takeover
  */
@@ -27,6 +28,13 @@ export type CliCommand =
     }
   | { kind: 'validate'; file: string }
   | { kind: 'export'; file: string; target: 'playwright' | 'raw-cdp'; out?: string }
+  | {
+      kind: 'import';
+      file: string;
+      /** Absent when the flavour should be sniffed from the script itself. */
+      target?: 'playwright' | 'raw-cdp';
+      out?: string;
+    }
   | { kind: 'serve'; host?: string; port?: number }
   | { kind: 'help' }
   | { kind: 'version' };
@@ -101,6 +109,27 @@ export function parseArgs(argv: readonly string[]): ParseResult {
           kind: 'export',
           file,
           target: targetRaw,
+          ...(typeof flags.out === 'string' ? { out: flags.out } : {}),
+        },
+        warnings,
+      };
+    }
+    case 'import': {
+      const file = positionals[0];
+      if (!file) {
+        throw new ValidationError(
+          'Usage: automate import <script.js> [--target playwright|raw-cdp] [--out flow.json]',
+        );
+      }
+      const targetRaw = flags.target ?? positionals[1];
+      if (targetRaw !== undefined && targetRaw !== 'playwright' && targetRaw !== 'raw-cdp') {
+        throw new ValidationError('import requires --target playwright|raw-cdp');
+      }
+      return {
+        command: {
+          kind: 'import',
+          file,
+          ...(targetRaw !== undefined ? { target: targetRaw } : {}),
           ...(typeof flags.out === 'string' ? { out: flags.out } : {}),
         },
         warnings,
@@ -191,6 +220,7 @@ Usage:
   automate run <flow.json> [--headless|--headful] [--chrome <path>] [--out <dir>] [--var k=v]
   automate validate <flow.json>
   automate export <flow.json> --target playwright|raw-cdp [--out <file>]
+  automate import <script.js> [--target playwright|raw-cdp] [--out <flow.json>]
   automate serve [--host <host>] [--port <port>]
   automate takeover <flow.json> [--headless] [--out <dir>]
 

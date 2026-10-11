@@ -5,6 +5,7 @@
  *   automate run      <flow.json> [--headless|--headful] [--chrome <path>] [--out <dir>] [--var k=v]
  *   automate validate <flow.json>
  *   automate export   <flow.json> --target playwright|raw-cdp [--out file]
+ *   automate import   <script.js> [--target playwright|raw-cdp] [--out flow.json]
  *   automate serve    [--host <host>] [--port <port>]
  *   automate takeover <flow.json> [--headless] [--out <dir>] [--var k=v]
  *
@@ -13,10 +14,21 @@
  * (except for the summary, which is explicitly machine-readable stdout output).
  */
 import process from 'node:process';
-import { mkdir, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { loadFlow, exportFlow, RoboError, toRoboError, type FlowModel } from '@robrowser/core';
+import {
+  detectImportTarget,
+  exportFlow,
+  importFlow,
+  ImportError,
+  loadFlow,
+  RoboError,
+  saveFlow,
+  stringifyFlow,
+  toRoboError,
+  type FlowModel,
+} from '@robrowser/core';
 import { parseArgs, USAGE } from './cli-args.js';
 import { resolveFlowPath } from './cli-paths.js';
 import { loadConfig } from './env.js';
@@ -78,6 +90,8 @@ export async function main(argv: readonly string[] = process.argv.slice(2)): Pro
       return validateCommand(command.file);
     case 'export':
       return exportCommand(command.file, command.target, command.out);
+    case 'import':
+      return importCommand(command.file, command.target, command.out);
     case 'run':
       return runCommand(command);
     case 'serve':
@@ -154,6 +168,70 @@ async function exportCommand(
       `${JSON.stringify({ command: 'export', status: 'failed', error: robo.code, message: robo.message })}\n`,
     );
     return robo.code === 'VALIDATION_ERROR' || robo.code === 'FLOW_NOT_FOUND' ? EXIT_VALIDATION : 1;
+  }
+}
+
+/* -------------------------------------------------------------------- import */
+
+/**
+ * `automate import <script.js> [--target playwright|raw-cdp] [--out flow.json]`
+ *
+ * Reads an exported (or hand-written) Playwright / raw-CDP script and recovers
+ * the flow. The script is parsed as data and never evaluated. Without `--out`
+ * the flow JSON is written to stdout so it can be piped.
+ */
+async function importCommand(
+  file: string,
+  target: 'playwright' | 'raw-cdp' | undefined,
+  out: string | undefined,
+): Promise<number> {
+  try {
+    const scriptPath = resolveFlowPath(file);
+    const source = await readFile(scriptPath, 'utf8');
+    const resolved = target ?? detectImportTarget(source);
+    if (resolved === null) {
+      throw new ImportError(
+        `无法识别 ${scriptPath} 的脚本类型；请用 --target playwright|raw-cdp 指定`,
+      );
+    }
+
+    const result = importFlow(source, resolved);
+    for (const warning of result.warnings) {
+      process.stderr.write(`warning: ${scriptPath}:${warning.line}: ${warning.message}\n`);
+    }
+
+    if (out) {
+      const absolute = resolve(out);
+      await saveFlow(absolute, result.flow);
+      process.stdout.write(
+        `${JSON.stringify(
+          {
+            command: 'import',
+            status: 'ok',
+            target: resolved,
+            file: absolute,
+            flow: { id: result.flow.id, name: result.flow.name, steps: countSteps(result.flow) },
+            generated: result.generated,
+            warnings: result.warnings.length,
+          },
+          null,
+          2,
+        )}\n`,
+      );
+    } else {
+      process.stdout.write(stringifyFlow(result.flow));
+    }
+    return 0;
+  } catch (error) {
+    const robo = toRoboError(error);
+    process.stderr.write(
+      `${JSON.stringify({ command: 'import', status: 'failed', error: robo.code, message: robo.message })}\n`,
+    );
+    return robo.code === 'VALIDATION_ERROR' ||
+      robo.code === 'FLOW_NOT_FOUND' ||
+      robo.code === 'IMPORT_ERROR'
+      ? EXIT_VALIDATION
+      : 1;
   }
 }
 

@@ -24,6 +24,7 @@ export type ErrorCode =
   | 'RUN_ABORTED'
   | 'CHECKPOINT_ERROR'
   | 'EXPORT_ERROR'
+  | 'IMPORT_ERROR'
   | 'STORAGE_ERROR'
   | 'TAKEOVER_ERROR'
   | 'TOKEN_INVALID'
@@ -129,6 +130,18 @@ export class ManualTimeoutError extends RoboError {
 export class ExportError extends RoboError {
   public constructor(message: string, details?: Record<string, unknown>) {
     super('EXPORT_ERROR', message, details);
+  }
+}
+
+/**
+ * Thrown by the importers when a script cannot be mapped onto a flow.
+ *
+ * Non-fatal problems are reported as warnings on the import result instead;
+ * this error means the script could not be interpreted at all.
+ */
+export class ImportError extends RoboError {
+  public constructor(message: string, details?: Record<string, unknown>) {
+    super('IMPORT_ERROR', message, details);
   }
 }
 

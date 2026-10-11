@@ -685,3 +685,29 @@ code {
   white-space: pre;
   resize: vertical;
 }
+
+/*
+ * Import preview: mirrors the export dialog, plus the list of statements that
+ * could not be mapped (those are never dropped silently).
+ */
+.rb-import-result {
+  margin-top: 10px;
+  padding: 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.rb-import-result p {
+  margin: 0;
+}
+
+.rb-import-warnings {
+  margin: 0;
+  padding-left: 18px;
+  max-height: 140px;
+  overflow: auto;
+  font-size: 11px;
+}

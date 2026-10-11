@@ -128,6 +128,20 @@ export {
   type ExportByTargetOptions,
 } from './exporters/index.js';
 
+/* -- importers ------------------------------------------------------------- */
+export {
+  importFlow,
+  importPlaywright,
+  importRawCdp,
+  detectImportTarget,
+  type ImportTarget,
+  type ImportOptions,
+  type ImportByTargetOptions,
+  type ImportResult,
+  type ImportStats,
+  type ImportWarning,
+} from './importers/index.js';
+
 /* -- storage --------------------------------------------------------------- */
 export {
   InMemoryFlowRepository,

@@ -292,7 +292,7 @@ const vars = {
   // branch: branch
   if ((await evaluate(cdp, "!!document.querySelector(" + JSON.stringify("[data-testid=\\"welcome\\"]") + ")"))) {
     // orders: extract
-    vars["orders"] = await evaluate(cdp, "(function(){var el=document.querySelector(" + JSON.stringify("#orders") + ");return el?el.getAttribute("textContent"):null;})()");
+    vars["orders"] = await evaluate(cdp, "(function(){var el=document.querySelector(\\"#orders\\");return el?el.getAttribute(\\"textContent\\"):null;})()");
 
   } else {
     // err: setVar

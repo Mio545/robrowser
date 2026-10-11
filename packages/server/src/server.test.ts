@@ -94,12 +94,28 @@ describe('CLI argument parsing', () => {
     expect(command).toMatchObject({ kind: 'run', headless: false });
   });
 
-  it('parses validate / export / serve / help / version', () => {
+  it('parses validate / export / import / serve / help / version', () => {
     expect(parseArgs(['validate', 'f.json']).command).toEqual({ kind: 'validate', file: 'f.json' });
     expect(parseArgs(['export', 'f.json', '--target', 'playwright']).command).toMatchObject({
       kind: 'export',
       target: 'playwright',
     });
+    expect(parseArgs(['import', 'script.cjs', '--target', 'raw-cdp']).command).toMatchObject({
+      kind: 'import',
+      file: 'script.cjs',
+      target: 'raw-cdp',
+    });
+    // Without --target the flavour is sniffed from the script at run time.
+    expect(parseArgs(['import', 'script.cjs']).command).toEqual({
+      kind: 'import',
+      file: 'script.cjs',
+    });
+    expect(parseArgs(['import', 'script.cjs', '--out', 'flow.json']).command).toMatchObject({
+      kind: 'import',
+      out: 'flow.json',
+    });
+    expect(() => parseArgs(['import', 'script.cjs', '--target', 'nope'])).toThrow(/--target/);
+    expect(() => parseArgs(['import'])).toThrow(/Usage: automate import/);
     expect(parseArgs(['serve', '--port', '9090']).command).toMatchObject({
       kind: 'serve',
       port: 9090,

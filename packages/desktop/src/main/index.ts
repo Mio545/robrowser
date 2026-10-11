@@ -14,14 +14,25 @@
  */
 import { app, BrowserWindow, dialog, ipcMain, WebContentsView, shell } from 'electron';
 import { join } from 'node:path';
-import { mkdir, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { pino } from 'pino';
-import { assertValidFlow, exportFlow, type FlowModel } from '@robrowser/core';
+import {
+  assertValidFlow,
+  detectImportTarget,
+  exportFlow,
+  importFlow,
+  type FlowModel,
+} from '@robrowser/core';
 import { DesktopStorage } from './storage.js';
 import { createCdpBridge, type CdpBridge } from './cdp-bridge.js';
 import { LocalManualHandler } from './manual-handler.js';
 import { RunController } from './run-controller.js';
-import type { MainEvents, StartRunRequest, StartRunResponse } from '../shared/types.js';
+import type {
+  ImportResponse,
+  MainEvents,
+  StartRunRequest,
+  StartRunResponse,
+} from '../shared/types.js';
 
 const isDev = !app.isPackaged;
 const logger = pino({
@@ -52,6 +63,37 @@ let bootstrapState: { ready: boolean; url: string; error?: string } = {
 function emit<K extends keyof MainEvents>(channel: K, payload: MainEvents[K]): void {
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send(channel, payload);
+  }
+}
+
+/**
+ * Recover a flow from a Playwright / raw-CDP script.
+ *
+ * Warnings are returned to the renderer verbatim so unmapped constructs are
+ * visible instead of silently disappearing. The script is parsed as data.
+ */
+function recoverFlow(source: string, target?: 'playwright' | 'raw-cdp'): ImportResponse {
+  try {
+    const resolved = target ?? detectImportTarget(source);
+    if (resolved === null) {
+      return {
+        ok: false,
+        error: {
+          code: 'IMPORT_ERROR',
+          message: '无法识别脚本类型，请手动选择 Playwright 或原生 CDP',
+        },
+      };
+    }
+    const result = importFlow(source, resolved);
+    return {
+      ok: true,
+      flow: result.flow,
+      target: resolved,
+      generated: result.generated,
+      warnings: result.warnings,
+    };
+  } catch (error) {
+    return { ok: false, error: { code: 'IMPORT_ERROR', message: (error as Error).message } };
   }
 }
 
@@ -254,6 +296,33 @@ function registerIpc(): void {
     await mkdir(join(result.filePath, '..'), { recursive: true }).catch(() => undefined);
     await writeFile(result.filePath, contents, 'utf8');
     return { ok: true, path: result.filePath };
+  });
+
+  ipcMain.handle(
+    'import:script',
+    (_event, source: string, target?: 'playwright' | 'raw-cdp'): ImportResponse =>
+      recoverFlow(source, target),
+  );
+
+  ipcMain.handle('import:open', async (): Promise<ImportResponse> => {
+    const picked = await dialog.showOpenDialog({
+      properties: ['openFile'],
+      filters: [{ name: 'Script', extensions: ['js', 'cjs', 'mjs', 'ts'] }],
+    });
+    const filePath = picked.filePaths[0];
+    if (picked.canceled || !filePath) {
+      return { ok: false, error: { code: 'CANCELLED', message: '已取消选择' } };
+    }
+    try {
+      const source = await readFile(filePath, 'utf8');
+      return { ...recoverFlow(source), path: filePath };
+    } catch (error) {
+      return {
+        ok: false,
+        path: filePath,
+        error: { code: 'IMPORT_ERROR', message: (error as Error).message },
+      };
+    }
   });
 
   ipcMain.handle('manual:resolve', async (_event, stepId: string) => {

@@ -5,7 +5,7 @@
  * The renderer never touches Node, CDP or the file system directly: everything
  * goes through the narrow `window.robrowser` API defined here.
  */
-import type { FlowModel, RunEvent, RunResult } from '@robrowser/core';
+import type { FlowModel, ImportWarning, RunEvent, RunResult } from '@robrowser/core';
 
 /** A stored flow summary returned to the UI. */
 export interface FlowSummary {
@@ -48,6 +48,25 @@ export interface StartRunResponse {
 export interface ExportResponse {
   ok: boolean;
   script?: string;
+  error?: { code: string; message: string };
+}
+
+/**
+ * Result of an import request.
+ *
+ * `warnings` carries every construct the importer could not map onto a step, so
+ * the UI can show them instead of silently losing parts of the script.
+ */
+export interface ImportResponse {
+  ok: boolean;
+  flow?: FlowModel;
+  /** Target that was used (explicit or sniffed from the script). */
+  target?: 'playwright' | 'raw-cdp';
+  /** True when the script carried the RoboBrowser export banner. */
+  generated?: boolean;
+  warnings?: ImportWarning[];
+  /** File the script was read from, for the "open file" flow. */
+  path?: string;
   error?: { code: string; message: string };
 }
 
@@ -97,6 +116,15 @@ export interface RoboBrowserApi {
   stopRun(): Promise<{ ok: boolean }>;
   exportScript(flow: FlowModel, target: 'playwright' | 'raw-cdp'): Promise<ExportResponse>;
   saveScript(defaultName: string, contents: string): Promise<{ ok: boolean; path?: string }>;
+  /**
+   * Recover a flow from a pasted Playwright / raw-CDP script.
+   *
+   * `target` may be omitted, in which case the flavour is sniffed from the
+   * script itself.
+   */
+  importScript(source: string, target?: 'playwright' | 'raw-cdp'): Promise<ImportResponse>;
+  /** Pick a script file on disk and recover a flow from it. */
+  openScript(): Promise<ImportResponse>;
   /**
    * Ask the main process to resume a manual step.
    *

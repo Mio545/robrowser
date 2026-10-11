@@ -336,15 +336,15 @@ class RawCdpEmitter {
         const reader = step.attr
           ? `el.getAttribute(${JSON.stringify(step.attr)})`
           : `(el.innerText || el.textContent || '')`;
-        if (step.all) {
-          this.push(
-            `${pad}${target} = await evaluate(cdp, "Array.from(document.querySelectorAll(" + JSON.stringify(${querySelectorExpr(step.selector)}) + ")).map(function(el){return ${reader};})");`,
-          );
-        } else {
-          this.push(
-            `${pad}${target} = await evaluate(cdp, "(function(){var el=document.querySelector(" + JSON.stringify(${querySelectorExpr(step.selector)}) + ");return el?${reader}:null;})()");`,
-          );
-        }
+        // The whole page-side expression is built first and then emitted as a
+        // single JSON string literal. Interpolating `reader` into a quoted JS
+        // string directly would produce invalid source as soon as `attr`
+        // contains a quote or a backslash.
+        const css = JSON.stringify(selectorToCss(step.selector));
+        const expression = step.all
+          ? `Array.from(document.querySelectorAll(${css})).map(function(el){return ${reader};})`
+          : `(function(){var el=document.querySelector(${css});return el?${reader}:null;})()`;
+        this.push(`${pad}${target} = await evaluate(cdp, ${JSON.stringify(expression)});`);
         break;
       }
 

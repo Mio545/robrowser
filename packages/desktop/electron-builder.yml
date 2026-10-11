@@ -7,6 +7,15 @@
 appId: com.robrowser.desktop
 productName: RoboBrowser
 copyright: Copyright © 2024 RoboBrowser
+
+# Electron ships ~55 locale packs (38 MB uncompressed). The app's own UI text is
+# bundled in the renderer, so only Chromium's built-in strings depend on these.
+# Keeping zh-CN + en-US keeps the installers well under Gitee's 100 MB per
+# attachment limit (the Linux AppImage used to sit at 104.8 MB and was rejected).
+electronLanguages:
+  - zh-CN
+  - en-US
+
 directories:
   output: release
   buildResources: build

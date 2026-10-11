@@ -191,22 +191,40 @@ jobs:
           fi
           echo "::endgroup::"
 
-          status=0
+          # Gitee rejects attachments over its per-file limit (documented as "100M":
+          # http://help.gitee.com/repository/release/create). Rather than guessing
+          # whether that means 100 MiB or 100 MB, every file is attempted and
+          # Gitee's own error body is printed — that body states the real limit.
+          # Curl gets an explicit --max-time: without it a stalled upload hangs the
+          # job until the 6-hour limit (which is what happened on the first run).
+          uploaded=0
+          failed=""
           for file in installers/*; do
             [ -f "$file" ] || continue
-            echo "::group::上传 $(basename "$file") ($(du -h "$file" | cut -f1))"
+            name=$(basename "$file")
+            bytes=$(wc -c < "$file")
+            echo "::group::上传 ${name}（${bytes} 字节 / $((bytes / 1048576)) MiB）"
             response=$(curl -sS -X POST "${API}/releases/${RELEASE_ID}/attach_files" \
+              --max-time 1800 --retry 2 --retry-delay 5 \
               -F "access_token=${GITEE_TOKEN}" \
               -F "file=@${file}" \
-              -w '\nHTTP %{http_code}' || true)
-            echo "$response"
+              -w '\nHTTP %{http_code}' \
+              -o /tmp/gitee-upload.json || true)
             code=$(printf '%s' "$response" | tail -n1)
+            echo "HTTP: ${code}"
+            echo "Gitee 响应: $(head -c 600 /tmp/gitee-upload.json 2>/dev/null)"
             case "$code" in
-              *200*|*201*) echo "上传成功" ;;
-              *) echo "::error::上传失败：$(basename "$file") -> $code"; status=1 ;;
+              *200*|*201*) echo "${name} 上传成功"; uploaded=$((uploaded + 1)) ;;
+              *) echo "::error::${name} 上传失败：${code}"; failed="${failed}${name} " ;;
             esac
             echo "::endgroup::"
           done
 
-          echo "Gitee 发行版页面：https://gitee.com/${OWNER}/${REPO}/releases/tag/${TAG}"
-          exit "$status"
+          echo "=== Gitee 同步结果 ==="
+          echo "成功: ${uploaded} 个"
+          [ -n "$failed" ] && echo "失败: ${failed}"
+          echo "发行版页面：https://gitee.com/${OWNER}/${REPO}/releases/tag/${TAG}"
+
+          # 有文件被 Gitee 拒绝时不判整条流水线失败：GitHub 发行版已完整，
+          # 这里只是降级，失败原因已在上面逐条打印。
+          exit 0

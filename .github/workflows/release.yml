@@ -60,6 +60,7 @@ jobs:
     steps:
       - name: Pick the tag to build
         id: pick
+        shell: bash
         env:
           # Needed only to ask GitHub whether a release already exists.
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -120,6 +121,9 @@ jobs:
       # Gitee is the source of truth; the GitHub copy can lag when the mirror
       # pipeline is unhappy, so pull the tag from Gitee when it is not local.
       - name: Check out the tag from Gitee
+        # Explicit bash: on Windows runners the default shell is pwsh, which
+        # cannot parse this script (`Missing '(' after 'if'`).
+        shell: bash
         env:
           TAG: ${{ needs.resolve.outputs.tag }}
         run: |

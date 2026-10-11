@@ -32,6 +32,9 @@ stages:
           - git remote remove github 2> /dev/null || true
           - git remote add github "https://Mio545:${GITHUB_TOKEN}@github.com/Mio545/robrowser.git"
           - ok=0; for i in 1 2 3; do if GIT_TERMINAL_PROMPT=0 git push --no-thin github "HEAD:${GITEE_BRANCH}" --force; then ok=1; break; fi; echo "第 $i 次推送失败，5 秒后重试..."; sleep 5; done; [ "$ok" = "1" ]
+          # 标签必须一并同步：GitHub 上的 release 工作流由 tag 推送触发，
+          # 只同步分支的话在 Gitee 打标签不会自动打包。
+          - GIT_TERMINAL_PROMPT=0 git push github --tags || echo "标签推送跳过（可能已存在）"
           - echo "synced to github"
         caches:
           - ~/.npm

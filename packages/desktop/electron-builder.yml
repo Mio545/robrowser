@@ -16,8 +16,14 @@ files:
   - package.json
   - '!**/*.map'
 
-# Native module: rebuilt for the bundled Electron ABI at package time.
-npmRebuild: true
+# Native module: the desktop package's own `postinstall`
+# (scripts/rebuild-native.mjs) already downloads better-sqlite3's Electron-ABI
+# prebuild, so electron-builder must NOT try to rebuild it again. With pnpm's
+# strict node_modules layout the rebuild step cannot find `prebuild-install`
+# inside the package, falls back to executing pnpm.cjs directly and dies with
+# "%1 is not a valid Win32 application" on Windows (`cannot execute` on other
+# platforms), failing the whole package step.
+npmRebuild: false
 asarUnpack:
   - '**/*.node'
 

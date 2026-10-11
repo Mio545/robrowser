@@ -1,0 +1,212 @@
+# Build runnable installers for every desktop platform and publish them to both
+# the GitHub and the Gitee release of the same tag.
+#
+# Why this lives in CI: electron-builder can only produce a macOS `.dmg` on
+# macOS and a Linux `.AppImage` on Linux, so no single workstation can build the
+# whole matrix — a Windows machine can never emit a working dmg/AppImage.
+#
+# Flow
+#   1. `build`        matrix across Windows / Linux / macOS(arm64, +Intel) ->
+#                     uploads one installer per platform as a workflow artifact
+#   2. `publish`      attaches every installer to the GitHub release of the tag
+#   3. `mirror-gitee` uploads the very same files to the Gitee release, so Gitee
+#                     users download from Gitee instead of GitHub
+#
+# Triggers
+#   - pushing a tag that starts with `v` (e.g. `v0.1.0-beta`)
+#   - manual run (workflow_dispatch) against a tag that already exists
+#
+# The Gitee mirror step reuses the `GITEE_TOKEN` repository secret that the
+# existing "Sync to Gitee" workflow already relies on; it needs the `projects`
+# scope. If the secret is absent the step is skipped and GitHub still gets the
+# installers.
+name: release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: '已存在的标签名（例如 v0.1.0-beta）'
+        required: true
+        default: 'v0.1.0-beta'
+      prerelease:
+        description: '标记为预发行版'
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+
+env:
+  NODE_VERSION: '20'
+  PNPM_VERSION: '9.12.0'
+
+jobs:
+  build:
+    name: ${{ matrix.label }}
+    runs-on: ${{ matrix.os }}
+    # Intel macOS images may not be available on every plan; let that single
+    # cell fail without sinking the release. Everything else must succeed.
+    continue-on-error: ${{ matrix.experimental || false }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: windows-latest, label: windows-x64, ebArgs: '--win --x64' }
+          - { os: ubuntu-latest, label: linux-x64, ebArgs: '--linux --x64' }
+          - { os: macos-latest, label: macos-arm64, ebArgs: '--mac --arm64' }
+          - { os: macos-15-intel, label: macos-x64, ebArgs: '--mac --x64', experimental: true }
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: pnpm/action-setup@v6
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      # Runs each package's postinstall, which is what downloads electron and
+      # the better-sqlite3 prebuild matching the bundled Electron ABI.
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build workspace
+        run: pnpm build
+
+      - name: Package installer
+        working-directory: packages/desktop
+        env:
+          # No signing certificate in CI — never make electron-builder look for one.
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+        run: >
+          pnpm exec electron-builder
+          --config electron-builder.yml
+          ${{ matrix.ebArgs }}
+          --publish never
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: installers-${{ matrix.label }}
+          if-no-files-found: error
+          path: |
+            packages/desktop/release/*.exe
+            packages/desktop/release/*.dmg
+            packages/desktop/release/*.AppImage
+
+  publish:
+    name: publish to GitHub
+    needs: build
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.vars.outputs.tag }}
+    steps:
+      - name: Resolve tag
+        id: vars
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "tag=${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/download-artifact@v8
+        with:
+          path: installers
+          merge-multiple: true
+
+      - name: Show what will be published
+        run: ls -la installers
+
+      - uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ steps.vars.outputs.tag }}
+          files: installers/*
+          fail_on_unmatched_files: true
+          # `v0.1.0-beta` -> prerelease; a plain `v1.0.0` stays a full release.
+          prerelease: ${{ github.event_name == 'workflow_dispatch' && inputs.prerelease || contains(steps.vars.outputs.tag, '-') }}
+
+  mirror-gitee:
+    name: mirror installers to Gitee
+    needs: publish
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          path: installers
+          merge-multiple: true
+
+      # Secrets cannot be inspected in a job-level `if`, so probe it here.
+      - name: Check for Gitee token
+        id: guard
+        env:
+          GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
+        run: |
+          if [ -z "${GITEE_TOKEN}" ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "::warning::GITEE_TOKEN 未配置，跳过 Gitee 附件同步（GitHub 发行版已就绪）"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Upload installers to the Gitee release
+        if: steps.guard.outputs.skip == 'false'
+        env:
+          GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
+          TAG: ${{ needs.publish.outputs.tag }}
+        run: |
+          set -euo pipefail
+          OWNER=xusy545
+          REPO=robrowser
+          API="https://gitee.com/api/v5/repos/${OWNER}/${REPO}"
+
+          echo "::group::解析 Gitee 发行版（tag=${TAG}）"
+          RELEASE_ID=$(curl -sS "${API}/releases/tags/${TAG}" \
+            | python3 -c 'import sys,json; d=json.load(sys.stdin); print(d.get("id") or "")' || true)
+          echo "已存在的发行版 id: ${RELEASE_ID:-（无）}"
+
+          if [ -z "${RELEASE_ID}" ]; then
+            # Tag already exists in the repo, so Gitee can attach a release to it.
+            RELEASE_ID=$(curl -sS -X POST "${API}/releases" \
+              -d "access_token=${GITEE_TOKEN}" \
+              -d "tag_name=${TAG}" \
+              -d "name=RoboBrowser ${TAG}" \
+              -d "target_commitish=master" \
+              -d "prerelease=true" \
+              | python3 -c 'import sys,json; d=json.load(sys.stdin); print(d.get("id") or "")')
+            echo "新建发行版 id: ${RELEASE_ID:-（失败）}"
+          fi
+
+          if [ -z "${RELEASE_ID}" ]; then
+            echo "::error::无法解析或创建 Gitee 发行版"
+            exit 1
+          fi
+          echo "::endgroup::"
+
+          status=0
+          for file in installers/*; do
+            [ -f "$file" ] || continue
+            echo "::group::上传 $(basename "$file") ($(du -h "$file" | cut -f1))"
+            response=$(curl -sS -X POST "${API}/releases/${RELEASE_ID}/attach_files" \
+              -F "access_token=${GITEE_TOKEN}" \
+              -F "file=@${file}" \
+              -w '\nHTTP %{http_code}' || true)
+            echo "$response"
+            code=$(printf '%s' "$response" | tail -n1)
+            case "$code" in
+              *200*|*201*) echo "上传成功" ;;
+              *) echo "::error::上传失败：$(basename "$file") -> $code"; status=1 ;;
+            esac
+            echo "::endgroup::"
+          done
+
+          echo "Gitee 发行版页面：https://gitee.com/${OWNER}/${REPO}/releases/tag/${TAG}"
+          exit "$status"

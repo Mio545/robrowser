@@ -13,6 +13,7 @@ import type {
   ImportResponse,
   MainEvents,
   ManualResolveResponse,
+  OpenPathResult,
   RoboBrowserApi,
   RunSummary,
   StartRunRequest,
@@ -36,6 +37,8 @@ const CHANNELS = {
   resolveManual: 'manual:resolve',
   hostStatus: 'host:status',
   setBrowserViewVisible: 'browser:view-visible',
+  setBrowserBounds: 'browser:set-bounds',
+  openPath: 'system:open-path',
   navigate: 'browser:navigate',
 } as const;
 
@@ -65,6 +68,10 @@ const api: RoboBrowserApi & { navigate(url: string): Promise<{ ok: boolean }> } 
   hostStatus: () => ipcRenderer.invoke(CHANNELS.hostStatus) as Promise<HostStatus>,
   setBrowserViewVisible: (visible) =>
     ipcRenderer.invoke(CHANNELS.setBrowserViewVisible, visible) as Promise<{ ok: boolean }>,
+  setBrowserBounds: (bounds) =>
+    ipcRenderer.invoke(CHANNELS.setBrowserBounds, bounds) as Promise<{ ok: boolean }>,
+  openPath: (targetPath, mode) =>
+    ipcRenderer.invoke(CHANNELS.openPath, targetPath, mode) as Promise<OpenPathResult>,
   on: <K extends keyof MainEvents>(event: K, listener: (payload: MainEvents[K]) => void) => {
     const handler = (_ipcEvent: unknown, payload: MainEvents[K]): void => listener(payload);
     ipcRenderer.on(event, handler);

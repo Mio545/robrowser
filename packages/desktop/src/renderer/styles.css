@@ -4,20 +4,19 @@
  * IMPORTANT — native view alignment
  * ---------------------------------
  * The embedded Chromium surface is a real `WebContentsView` painted by the
- * Electron main process at absolute pixel bounds. `main/index.ts` computes:
+ * Electron main process. The RENDERER is the layout source of truth: App.tsx
+ * measures `.rb-preview-pane` (ResizeObserver + window resize) and reports the
+ * exact rectangle to the main process via `browser:set-bounds`. The constant
+ * values below are only the initial fallback before the first report.
  *
- *   left   = round(width  * 0.38) + 8      -> this file: 38% column + 8px gutter
- *   top    = 56 (header) + 40 (bar) + 8    -> this file: 40px row + 8px gutter
- *   bottom = window height - 250 - 8       -> this file: 8px gap + 250px log row
- *
- * So `.rb-body` MUST start exactly at `--header-height` and `.rb-right` MUST be
- * the grid `40px 8px 1fr 8px 250px`. Do not add borders, margins or banners
- * between the header and the body, or the native view will drift.
+ * Resizable panels (left column width, log height, editor height) are CSS
+ * variables updated by drag handles; the native view follows automatically.
  */
 :root {
   --header-height: 56px;
   --preview-bar-height: 40px;
   --log-panel-height: 250px;
+  --editor-height: 300px;
   --view-inset: 8px;
   --left-ratio: 38%;
 
@@ -164,8 +163,112 @@ code {
   font-size: 11px;
 }
 
+/* Custom flow picker (native <select> replaced: its popup list is OS-drawn
+   and cannot be themed, so the whole control is hand-rolled). */
 .rb-flow-picker {
-  max-width: 160px;
+  position: relative;
+  min-width: 170px;
+  max-width: 220px;
+}
+
+.rb-picker-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  padding: 5px 10px;
+  color: var(--text);
+  background: var(--bg-raised);
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  cursor: pointer;
+  font: inherit;
+  white-space: nowrap;
+  transition: border-color 0.12s ease, background-color 0.12s ease;
+}
+
+.rb-picker-trigger:hover,
+.rb-picker-trigger.rb-open {
+  border-color: #64748b;
+  background: #1b2536;
+}
+
+.rb-picker-arrow {
+  flex: 0 0 auto;
+  color: #94a3b8;
+  transition: transform 0.15s ease;
+}
+
+.rb-picker-trigger.rb-open .rb-picker-arrow {
+  transform: rotate(180deg);
+}
+
+.rb-picker-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 60;
+  min-width: 100%;
+  max-height: 300px;
+  overflow: auto;
+  padding: 5px;
+  background: #151d2c;
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  box-shadow: 0 12px 32px rgb(0 0 0 / 55%);
+}
+
+.rb-picker-item {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  padding: 7px 9px;
+  color: var(--text);
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+  transition: background-color 0.1s ease;
+}
+
+.rb-picker-item:hover {
+  background: #233047;
+}
+
+.rb-picker-item.rb-current {
+  background: rgba(59, 130, 246, 0.16);
+  color: #bfdbfe;
+}
+
+.rb-picker-check {
+  flex: 0 0 14px;
+  color: #60a5fa;
+  font-size: 12px;
+}
+
+.rb-picker-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rb-picker-empty {
+  margin: 0;
+  padding: 8px 10px;
+  color: var(--text-muted);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.rb-dirty {
+  color: var(--warn);
+  font-size: 10px;
+  line-height: 1;
+  margin-left: -2px;
 }
 
 .rb-grow {
@@ -223,7 +326,6 @@ code {
   min-width: 0;
   display: flex;
   flex-direction: column;
-  border-right: 1px solid var(--border);
   background: var(--bg-panel);
 }
 
@@ -235,15 +337,68 @@ code {
     var(--preview-bar-height)
     var(--view-inset)
     minmax(0, 1fr)
-    var(--view-inset)
+    8px
     var(--log-panel-height);
   background: var(--bg);
+}
+
+/* ------------------------------------------------------------------ dividers */
+
+.rb-divider {
+  flex: 0 0 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 20;
+}
+
+.rb-divider::after {
+  content: '';
+  border-radius: 2px;
+  background: var(--border);
+  transition: background 0.15s;
+}
+
+.rb-divider:hover::after,
+.rb-divider:active::after {
+  background: var(--primary);
+}
+
+.rb-divider-left {
+  width: 6px;
+  height: 100%;
+  cursor: col-resize;
+}
+
+.rb-divider-left::after {
+  width: 2px;
+  height: 56px;
+}
+
+.rb-divider-editor {
+  cursor: row-resize;
+}
+
+.rb-divider-editor::after {
+  width: 56px;
+  height: 2px;
+}
+
+.rb-divider-log {
+  grid-row: 4;
+  margin: 0 var(--view-inset);
+  cursor: row-resize;
+}
+
+.rb-divider-log::after {
+  width: 56px;
+  height: 3px;
 }
 
 /* -------------------------------------------------------- flow editor (L) */
 
 .rb-editor {
-  flex: 0 0 300px;
+  flex: 0 0 var(--editor-height);
   display: flex;
   flex-direction: column;
   min-height: 0;
@@ -299,6 +454,34 @@ code {
 .rb-canvas .react-flow__edge-path {
   stroke: #475569;
   stroke-width: 1.6;
+}
+
+/* Zoom / fit controls: spread out and match the app chrome. */
+.rb-canvas .react-flow__controls {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  background: transparent;
+  box-shadow: none;
+  border-radius: 10px;
+}
+
+.rb-canvas .react-flow__controls-button {
+  width: 32px;
+  height: 32px;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  background: var(--bg-raised);
+  box-shadow: 0 2px 10px rgb(0 0 0 / 40%);
+}
+
+.rb-canvas .react-flow__controls-button:hover {
+  background: #17233c;
+  border-color: #64748b;
+}
+
+.rb-canvas .react-flow__controls-button svg {
+  fill: var(--text);
 }
 
 .rb-tabs {
@@ -529,6 +712,45 @@ code {
   border-radius: 4px;
 }
 
+.rb-thumb-click {
+  cursor: zoom-in;
+}
+
+.rb-log-link {
+  color: #7dd3fc;
+  font-size: 11px;
+  word-break: break-all;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.rb-log-link:hover {
+  color: #bae6fd;
+}
+
+/* Full-size screenshot overlay. The native view is hidden while it is open. */
+.rb-lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: 120;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  background: rgb(2 6 23 / 85%);
+  cursor: zoom-out;
+}
+
+.rb-lightbox img {
+  max-width: 92vw;
+  max-height: 86vh;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  background: #fff;
+}
+
 /* ------------------------------------------------------------------ badges */
 
 .rb-badge {
@@ -566,7 +788,7 @@ code {
   top: var(--header-height);
   right: 0;
   bottom: 0;
-  width: 380px;
+  width: min(620px, 60vw);
   z-index: 45;
   background: var(--bg-panel);
   border-left: 1px solid var(--border-strong);
@@ -594,25 +816,38 @@ code {
   box-shadow: 0 -12px 28px rgb(0 0 0 / 45%);
 }
 
-.rb-run-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
+.rb-run-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 6px;
+  font-size: 12px;
 }
 
-.rb-run-list li {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 2px;
+.rb-run-table th {
+  text-align: left;
+  color: var(--text-muted);
+  font-weight: 500;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border-strong);
+  white-space: nowrap;
+}
+
+.rb-run-table td {
+  padding: 6px 8px;
   border-bottom: 1px solid var(--border);
+  vertical-align: middle;
 }
 
-.rb-run-name {
-  flex: 1 1 auto;
+.rb-run-table .rb-run-name {
+  max-width: 200px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.rb-run-table td button {
+  padding: 3px 8px;
+  font-size: 11px;
 }
 
 .rb-modal-backdrop {

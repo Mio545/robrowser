@@ -39,6 +39,8 @@ export function App(): React.ReactElement {
   const [flow, setFlow] = useState<FlowModel>(() => blankFlow());
   const [selectedStepId, setSelectedStepId] = useState<string | null>(null);
   const [flows, setFlows] = useState<FlowSummary[]>([]);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const pickerRef = useRef<HTMLDivElement>(null);
   const [runs, setRuns] = useState<RunSummary[]>([]);
   const [events, setEvents] = useState<RunEvent[]>([]);
   const [running, setRunning] = useState(false);
@@ -57,6 +59,18 @@ export function App(): React.ReactElement {
   const [inputValues, setInputValues] = useState<Record<string, string>>({});
   const [hostReady, setHostReady] = useState(false);
   const [hostError, setHostError] = useState<string | null>(null);
+
+  /** Serialized flow at the last save/load; differing canvas means unsaved edits. */
+  const [savedSnapshot, setSavedSnapshot] = useState<string>('');
+  /** Panel sizes in px (leftWidth 0 = follow the CSS default of 38%). */
+  const [layout, setLayout] = useState(() => ({
+    leftWidth: Number(localStorage.getItem('rb.layout.left')) || 0,
+    logHeight: Number(localStorage.getItem('rb.layout.log')) || 250,
+    editorHeight: Number(localStorage.getItem('rb.layout.editor')) || 300,
+  }));
+  const layoutRef = useRef(layout);
+  layoutRef.current = layout;
+  const previewPaneRef = useRef<HTMLDivElement>(null);
 
   /** Keep a ref to the newest flow so IPC callbacks never read a stale value. */
   const flowRef = useRef(flow);
@@ -87,6 +101,7 @@ export function App(): React.ReactElement {
       if (stored) {
         setFlow(stored);
         setSelectedStepId(stored.steps[0]?.id ?? null);
+        setSavedSnapshot(JSON.stringify(stored));
         setStatus(`已载入「${stored.name}」`);
       }
     })();
@@ -183,10 +198,31 @@ export function App(): React.ReactElement {
 
   const updateFlow = useCallback((next: FlowModel): void => setFlow(next), []);
 
+  const isDirty = JSON.stringify(flow) !== savedSnapshot;
+
+  /** Ask before throwing away unsaved canvas edits. */
+  const confirmDiscard = useCallback((): boolean => {
+    if (JSON.stringify(flowRef.current) === savedSnapshot) return true;
+    return window.confirm('当前流程有未保存的修改，放弃这些修改并继续吗？');
+  }, [savedSnapshot]);
+
+  const newFlow = useCallback((): void => {
+    if (!confirmDiscard()) return;
+    const blank = blankFlow();
+    setFlow(blank);
+    setSelectedStepId(blank.steps[0]?.id ?? null);
+    setEvents([]);
+    setLastResult(null);
+    setFailedStepId(null);
+    setActiveStepId(null);
+    setStatus('新流程已创建——搭好后记得点「保存」');
+  }, [confirmDiscard]);
+
   const saveFlow = useCallback(async (): Promise<void> => {
     setError(null);
     const result = await window.robrowser.saveFlow(flowRef.current);
     if (result.ok) {
+      setSavedSnapshot(JSON.stringify(flowRef.current));
       setStatus(`已保存「${flowRef.current.name}」`);
       await refreshLists();
     } else {
@@ -194,16 +230,21 @@ export function App(): React.ReactElement {
     }
   }, [refreshLists]);
 
-  const loadFlow = useCallback(async (id: string): Promise<void> => {
-    const stored = await window.robrowser.loadFlow(id);
-    if (!stored) {
-      setError(`找不到流程 ${id}`);
-      return;
-    }
-    setFlow(stored);
-    setSelectedStepId(stored.steps[0]?.id ?? null);
-    setStatus(`已载入「${stored.name}」`);
-  }, []);
+  const loadFlow = useCallback(
+    async (id: string): Promise<void> => {
+      if (!confirmDiscard()) return;
+      const stored = await window.robrowser.loadFlow(id);
+      if (!stored) {
+        setError(`找不到流程 ${id}`);
+        return;
+      }
+      setFlow(stored);
+      setSelectedStepId(stored.steps[0]?.id ?? null);
+      setSavedSnapshot(JSON.stringify(stored));
+      setStatus(`已载入「${stored.name}」`);
+    },
+    [confirmDiscard],
+  );
 
   const startRun = useCallback(async (): Promise<void> => {
     setError(null);
@@ -260,9 +301,9 @@ export function App(): React.ReactElement {
    * not need the browser hide it while they are open.
    */
   useEffect(() => {
-    const overlayOpen = exportOpen || importOpen || showHistory;
+    const overlayOpen = exportOpen || importOpen || showHistory || pickerOpen;
     void window.robrowser.setBrowserViewVisible(!overlayOpen).catch(() => undefined);
-  }, [exportOpen, importOpen, showHistory]);
+  }, [exportOpen, importOpen, showHistory, pickerOpen]);
 
   const navigate = useCallback((url: string): void => {
     const target = url.trim();
@@ -274,10 +315,139 @@ export function App(): React.ReactElement {
 
   const reload = useCallback((): void => navigate(browserUrl), [browserUrl, navigate]);
 
+  /* ------------------------------------------------------------- panel drag */
+
+  const startLeftDrag = useCallback((event: React.MouseEvent): void => {
+    event.preventDefault();
+    const startX = event.clientX;
+    const startWidth =
+      layoutRef.current.leftWidth ||
+      document.querySelector<HTMLElement>('.rb-left')?.getBoundingClientRect().width ||
+      400;
+    const bodyWidth =
+      document.querySelector<HTMLElement>('.rb-body')?.clientWidth ?? window.innerWidth;
+    const onMove = (move: MouseEvent): void => {
+      const width = Math.round(
+        Math.min(Math.max(startWidth + (move.clientX - startX), 280), bodyWidth - 420),
+      );
+      setLayout((current) => ({ ...current, leftWidth: width }));
+    };
+    const onUp = (): void => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+      document.body.style.cursor = '';
+      if (layoutRef.current.leftWidth) {
+        localStorage.setItem('rb.layout.left', String(layoutRef.current.leftWidth));
+      }
+    };
+    document.body.style.cursor = 'col-resize';
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+  }, []);
+
+  const startLogDrag = useCallback((event: React.MouseEvent): void => {
+    event.preventDefault();
+    const startY = event.clientY;
+    const startHeight = layoutRef.current.logHeight;
+    const maxHeight = Math.max(140, window.innerHeight - 420);
+    const onMove = (move: MouseEvent): void => {
+      const height = Math.round(
+        Math.min(Math.max(startHeight - (move.clientY - startY), 120), maxHeight),
+      );
+      setLayout((current) => ({ ...current, logHeight: height }));
+    };
+    const onUp = (): void => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+      document.body.style.cursor = '';
+      localStorage.setItem('rb.layout.log', String(layoutRef.current.logHeight));
+    };
+    document.body.style.cursor = 'row-resize';
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+  }, []);
+
+  const startEditorDrag = useCallback((event: React.MouseEvent): void => {
+    event.preventDefault();
+    const startY = event.clientY;
+    const startHeight = layoutRef.current.editorHeight;
+    const maxHeight = Math.max(220, window.innerHeight - 360);
+    const onMove = (move: MouseEvent): void => {
+      const height = Math.round(
+        Math.min(Math.max(startHeight + (move.clientY - startY), 160), maxHeight),
+      );
+      setLayout((current) => ({ ...current, editorHeight: height }));
+    };
+    const onUp = (): void => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+      document.body.style.cursor = '';
+      localStorage.setItem('rb.layout.editor', String(layoutRef.current.editorHeight));
+    };
+    document.body.style.cursor = 'row-resize';
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+  }, []);
+
+  /**
+   * The renderer is the layout source of truth for the native view: measure
+   * `.rb-preview-pane` and report the rectangle whenever it changes (window
+   * resize, panel drags). The main process only applies what it receives.
+   */
+  useEffect(() => {
+    const pane = previewPaneRef.current;
+    if (!pane) return;
+    const report = (): void => {
+      const rect = pane.getBoundingClientRect();
+      void window.robrowser
+        .setBrowserBounds({
+          x: Math.round(rect.left),
+          y: Math.round(rect.top),
+          width: Math.round(rect.width),
+          height: Math.round(rect.height),
+        })
+        .catch(() => undefined);
+    };
+    report();
+    const observer = new ResizeObserver(report);
+    observer.observe(pane);
+    window.addEventListener('resize', report);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener('resize', report);
+    };
+  }, []);
+
+  /** Close the flow picker on outside click or Escape. */
+  useEffect(() => {
+    if (!pickerOpen) return;
+    const onDown = (event: MouseEvent): void => {
+      if (pickerRef.current && !pickerRef.current.contains(event.target as Node)) {
+        setPickerOpen(false);
+      }
+    };
+    const onKey = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') setPickerOpen(false);
+    };
+    document.addEventListener('mousedown', onDown);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onDown);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [pickerOpen]);
+
+  /** Panel sizes as CSS variables; unset left width falls back to 38%. */
+  const layoutStyle = {
+    ...(layout.leftWidth ? { '--left-ratio': `${layout.leftWidth}px` } : {}),
+    '--log-panel-height': `${layout.logHeight}px`,
+    '--editor-height': `${layout.editorHeight}px`,
+  } as React.CSSProperties;
+
   const inputVars = Object.entries(flow.variables ?? {}).filter(([, def]) => def.type === 'input');
 
   return (
-    <div className="rb-app">
+    <div className="rb-app" style={layoutStyle}>
       <header className="rb-header">
         <span className="rb-logo">RoboBrowser</span>
         <input
@@ -286,25 +456,55 @@ export function App(): React.ReactElement {
           aria-label="流程名称"
           onChange={(event) => setFlow((current) => ({ ...current, name: event.target.value }))}
         />
+        {isDirty && (
+          <span className="rb-dirty" title="有未保存的修改">
+            ●
+          </span>
+        )}
         <span className="rb-muted rb-flow-id">{flow.id}</span>
         <span className="rb-grow" />
         {status && <span className="rb-status">{status}</span>}
+        <button onClick={newFlow}>新建</button>
         <button onClick={() => void saveFlow()}>保存</button>
-        <select
-          className="rb-flow-picker"
-          value=""
-          aria-label="打开流程"
-          onChange={(event) => void loadFlow(event.target.value)}
-        >
-          <option value="" disabled>
-            打开流程…
-          </option>
-          {flows.map((item) => (
-            <option key={item.id} value={item.id}>
-              {item.name}
-            </option>
-          ))}
-        </select>
+        <div className="rb-flow-picker" ref={pickerRef}>
+          <button
+            type="button"
+            className={`rb-picker-trigger${pickerOpen ? ' rb-open' : ''}`}
+            aria-label="打开流程"
+            aria-haspopup="listbox"
+            aria-expanded={pickerOpen}
+            onClick={() => setPickerOpen((open) => !open)}
+          >
+            <span>打开流程…</span>
+            <svg className="rb-picker-arrow" width="10" height="6" viewBox="0 0 10 6" aria-hidden="true">
+              <path d="M1 1l4 4 4-4" stroke="currentColor" strokeWidth="1.5" fill="none" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </button>
+          {pickerOpen && (
+            <div className="rb-picker-menu" role="listbox" aria-label="流程列表">
+              {flows.length === 0 && <p className="rb-picker-empty">还没有保存过的流程</p>}
+              {flows.map((item) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  role="option"
+                  aria-selected={item.id === flow.id}
+                  className={`rb-picker-item${item.id === flow.id ? ' rb-current' : ''}`}
+                  title={item.name}
+                  onClick={() => {
+                    setPickerOpen(false);
+                    if (item.id !== flow.id) void loadFlow(item.id);
+                  }}
+                >
+                  <span className="rb-picker-check" aria-hidden="true">
+                    {item.id === flow.id ? '✓' : ''}
+                  </span>
+                  <span className="rb-picker-name">{item.name}</span>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
         <button onClick={() => setShowHistory((open) => !open)}>历史</button>
         <button onClick={() => setExportOpen(true)}>导出脚本</button>
         <button onClick={() => setImportOpen(true)}>导入脚本</button>
@@ -341,6 +541,11 @@ export function App(): React.ReactElement {
               if (id) setTab('config');
             }}
           />
+          <div
+            className="rb-divider rb-divider-editor"
+            title="拖动调节画布高度"
+            onMouseDown={startEditorDrag}
+          />
           <div className="rb-tabs">
             <button
               className={tab === 'config' ? 'rb-tab-active' : ''}
@@ -364,13 +569,24 @@ export function App(): React.ReactElement {
           </div>
         </section>
 
+        <div
+          className="rb-divider rb-divider-left"
+          title="拖动调节左右分栏"
+          onMouseDown={startLeftDrag}
+        />
+
         <section className="rb-right">
           <BrowserPreview url={browserUrl} onNavigate={navigate} onReload={reload} />
-          <div className="rb-preview-pane">
+          <div className="rb-preview-pane" ref={previewPaneRef}>
             <div className="rb-preview-placeholder">
               <span className="rb-muted">Chromium 内嵌视图</span>
             </div>
           </div>
+          <div
+            className="rb-divider rb-divider-log"
+            title="拖动调节日志高度"
+            onMouseDown={startLogDrag}
+          />
           <RunLogPanel
             events={events}
             running={running}
@@ -389,18 +605,50 @@ export function App(): React.ReactElement {
             <button onClick={() => setShowHistory(false)}>关闭</button>
           </div>
           {runs.length === 0 && <p className="rb-muted">还没有运行记录。</p>}
-          <ul className="rb-run-list">
-            {runs.map((run) => (
-              <li key={run.id}>
-                <span className={`rb-badge rb-badge-${run.status}`}>{run.status}</span>
-                <span className="rb-run-name">{run.flowName}</span>
-                <span className="rb-muted">{new Date(run.startedAt).toLocaleString()}</span>
-                <span className="rb-muted">{run.stepCount} 步</span>
-                <span className="rb-muted">{run.durationMs}ms</span>
-                {lastResult?.runId === run.id && <span className="rb-muted">（本会话）</span>}
-              </li>
-            ))}
-          </ul>
+          <table className="rb-run-table">
+            <thead>
+              <tr>
+                <th>状态</th>
+                <th>流程</th>
+                <th>开始时间</th>
+                <th>步数</th>
+                <th>耗时</th>
+                <th>产物</th>
+              </tr>
+            </thead>
+            <tbody>
+              {runs.map((run) => (
+                <tr key={run.id}>
+                  <td>
+                    <span className={`rb-badge rb-badge-${run.status}`}>
+                      {run.status === 'success' ? '成功' : run.status === 'failed' ? '失败' : '中止'}
+                    </span>
+                  </td>
+                  <td className="rb-run-name" title={run.flowName}>
+                    {run.flowName}
+                    {lastResult?.runId === run.id && (
+                      <span className="rb-muted">（本会话）</span>
+                    )}
+                  </td>
+                  <td className="rb-muted">{new Date(run.startedAt).toLocaleString()}</td>
+                  <td>{run.stepCount}</td>
+                  <td>{run.durationMs}ms</td>
+                  <td>
+                    {run.runDir ? (
+                      <button
+                        title={run.runDir}
+                        onClick={() => void window.robrowser.openPath(run.runDir!, 'reveal')}
+                      >
+                        打开产物
+                      </button>
+                    ) : (
+                      <span className="rb-muted">—</span>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       )}
 

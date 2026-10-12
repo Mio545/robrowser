@@ -9,6 +9,8 @@ interface LogRow {
   text: string;
   detail?: string;
   screenshot?: string;
+  /** Absolute artifact path (screenshots); clickable to reveal in Explorer. */
+  path?: string;
   timestamp: number;
 }
 
@@ -39,6 +41,27 @@ export function RunLogPanel({
 }: RunLogPanelProps): React.ReactElement {
   const scroller = useRef<HTMLDivElement>(null);
   const [autoScroll, setAutoScroll] = useState(true);
+  /** Full-size screenshot shown in the lightbox overlay. */
+  const [lightbox, setLightbox] = useState<string | null>(null);
+
+  /*
+   * The native browser view paints above this DOM, so the lightbox must hide
+   * it while open (same trick as the export/import/history overlays).
+   */
+  useEffect(() => {
+    if (!lightbox) return;
+    void window.robrowser.setBrowserViewVisible(false).catch(() => undefined);
+    return () => {
+      void window.robrowser.setBrowserViewVisible(true).catch(() => undefined);
+    };
+  }, [lightbox]);
+
+  /** Reveal an artifact file in the OS file manager. */
+  const revealPath = (path: string): void => {
+    void window.robrowser.openPath(path, 'reveal').then((result) => {
+      if (!result.ok) console.warn('openPath failed:', result.error);
+    });
+  };
 
   const rows: LogRow[] = [];
   for (let index = 0; index < events.length; index += 1) {
@@ -96,18 +119,22 @@ export function RunLogPanel({
           timestamp: Number(payload.timestamp ?? 0),
         });
         break;
-      case 'screenshot':
+      case 'screenshot': {
+        const screenshotPath = typeof payload.path === 'string' ? payload.path : undefined;
+        const fileName = screenshotPath?.split(/[\\/]/).pop() ?? '';
         rows.push({
           key: index,
           kind: 'ok',
           stepId,
-          text: `🖼 截图 ${String(payload.path ?? '')}`,
+          text: `🖼 截图 ${fileName}`,
+          ...(screenshotPath ? { path: screenshotPath } : {}),
           ...(typeof payload.base64 === 'string'
             ? { screenshot: `data:image/png;base64,${payload.base64}` }
             : {}),
           timestamp: Number(payload.timestamp ?? 0),
         });
         break;
+      }
       case 'manual:request':
         rows.push({
           key: index,
@@ -184,10 +211,34 @@ export function RunLogPanel({
           >
             <span className="rb-log-text">{row.text}</span>
             {row.detail && <span className="rb-log-detail">{row.detail}</span>}
-            {row.screenshot && <img className="rb-thumb" src={row.screenshot} alt="screenshot" />}
+            {row.path && (
+              <span
+                className="rb-log-link"
+                title={`在文件夹中显示：${row.path}`}
+                onClick={() => revealPath(row.path!)}
+              >
+                {row.path}
+              </span>
+            )}
+            {row.screenshot && (
+              <img
+                className="rb-thumb rb-thumb-click"
+                src={row.screenshot}
+                alt="screenshot"
+                title="点击查看大图"
+                onClick={() => setLightbox(row.screenshot!)}
+              />
+            )}
           </div>
         ))}
       </div>
+
+      {lightbox && (
+        <div className="rb-lightbox" onClick={() => setLightbox(null)}>
+          <img src={lightbox} alt="screenshot full" />
+          <p className="rb-muted">点击任意处关闭</p>
+        </div>
+      )}
     </section>
   );
 }

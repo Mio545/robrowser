@@ -13,7 +13,7 @@
  * `WebContentsView` is used instead of the deprecated `<webview>` tag (spec 2).
  */
 import { app, BrowserWindow, dialog, ipcMain, WebContentsView, shell } from 'electron';
-import { join } from 'node:path';
+import { join, resolve as resolvePath, sep as pathSep } from 'node:path';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { pino } from 'pino';
 import {
@@ -32,6 +32,7 @@ import type {
   MainEvents,
   StartRunRequest,
   StartRunResponse,
+  ViewBounds,
 } from '../shared/types.js';
 
 const isDev = !app.isPackaged;
@@ -40,12 +41,20 @@ const logger = pino({
   base: { scope: 'desktop' },
 });
 
-/** Layout constants shared with the renderer CSS (keep both in sync). */
+/** Layout constants shared with the renderer CSS (initial fallback only). */
 const HEADER_HEIGHT = 56;
 const PREVIEW_BAR_HEIGHT = 40;
 const LOG_PANEL_HEIGHT = 250;
 const VIEW_INSET = 8;
 const LEFT_COLUMN_RATIO = 0.38;
+
+/**
+ * The renderer measures `.rb-preview-pane` and reports the exact rectangle via
+ * `browser:set-bounds`; from then on IT is the layout source of truth (this is
+ * what keeps the native view aligned while panels are being resized). The
+ * constant-based `layoutBrowserView` only runs before the first report.
+ */
+let lastViewBounds: ViewBounds | undefined;
 
 let mainWindow: BrowserWindow | undefined;
 let browserView: WebContentsView | undefined;
@@ -124,7 +133,11 @@ async function createWindow(): Promise<void> {
   mainWindow.contentView.addChildView(browserView);
   layoutBrowserView();
 
-  mainWindow.on('resize', layoutBrowserView);
+  mainWindow.on('resize', () => {
+    // Before the renderer takes over, fall back to the constant-based layout.
+    // Afterwards the renderer reports fresh bounds on every resize itself.
+    if (!lastViewBounds) layoutBrowserView();
+  });
   mainWindow.on('closed', () => {
     mainWindow = undefined;
   });
@@ -333,7 +346,41 @@ function registerIpc(): void {
 
   ipcMain.handle('browser:view-visible', (_event, visible: boolean) => {
     if (!browserView) return { ok: false };
-    browserView.setVisible(visible !== false);
+    browserView.setVisible(visible);
+    return { ok: true };
+  });
+
+  ipcMain.handle('browser:set-bounds', (_event, bounds: ViewBounds) => {
+    if (!browserView || !bounds) return { ok: false };
+    const safe = (value: unknown): number =>
+      Number.isFinite(Number(value)) ? Math.max(0, Math.round(Number(value))) : 0;
+    const rect: ViewBounds = {
+      x: safe(bounds.x),
+      y: safe(bounds.y),
+      width: Math.max(1, safe(bounds.width)),
+      height: Math.max(1, safe(bounds.height)),
+    };
+    lastViewBounds = rect;
+    browserView.setBounds(rect);
+    return { ok: true };
+  });
+
+  ipcMain.handle('system:open-path', async (_event, targetPath: string, mode?: 'reveal' | 'open') => {
+    if (typeof targetPath !== 'string' || targetPath.trim() === '') {
+      return { ok: false, error: '缺少路径' };
+    }
+    // Security: only paths inside the userData `runs` directory may be opened.
+    const runsRoot = resolvePath(app.getPath('userData'), 'runs');
+    const target = resolvePath(targetPath);
+    if (target !== runsRoot && !target.startsWith(runsRoot + pathSep)) {
+      return { ok: false, error: '只允许打开运行产物目录内的路径' };
+    }
+    if (mode === 'open') {
+      const failure = await shell.openPath(target);
+      if (failure) return { ok: false, error: failure };
+    } else {
+      shell.showItemInFolder(target);
+    }
     return { ok: true };
   });
 

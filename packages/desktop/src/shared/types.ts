@@ -30,6 +30,24 @@ export interface RunSummary {
   errorMessage?: string;
 }
 
+/**
+ * Rectangle for the native browser view, in window-content CSS pixels.
+ * Measured by the renderer (`.rb-preview-pane` bounding rect); the renderer is
+ * the layout source of truth so resizable panels stay in sync automatically.
+ */
+export interface ViewBounds {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+/** Result of asking the OS shell to open/reveal a run artifact path. */
+export interface OpenPathResult {
+  ok: boolean;
+  error?: string;
+}
+
 /** Options accepted when starting a run. */
 export interface StartRunRequest {
   flow: FlowModel;
@@ -141,5 +159,16 @@ export interface RoboBrowserApi {
    * the preview area must temporarily hide it.
    */
   setBrowserViewVisible(visible: boolean): Promise<{ ok: boolean }>;
+  /**
+   * Resize/reposition the native browser view to the exact rectangle the
+   * renderer measured for `.rb-preview-pane` (window-content CSS pixels).
+   */
+  setBrowserBounds(bounds: ViewBounds): Promise<{ ok: boolean }>;
+  /**
+   * Open a run-artifact path with the OS shell. `mode:"reveal"` shows the item
+   * in Explorer, `mode:"open"` opens it with the default application.
+   * Paths outside the userData `runs` directory are rejected (security).
+   */
+  openPath(targetPath: string, mode?: 'reveal' | 'open'): Promise<OpenPathResult>;
   on<K extends keyof MainEvents>(event: K, listener: (payload: MainEvents[K]) => void): () => void;
 }

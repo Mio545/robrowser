@@ -31,15 +31,12 @@ import {
 } from '@robrowser/core';
 import { parseArgs, USAGE } from './cli-args.js';
 import { resolveFlowPath } from './cli-paths.js';
-import { loadConfig } from './env.js';
+import { loadConfig, notifyChannels } from './env.js';
 import { createLogger } from './logger.js';
 import { createRuntime } from './runtime.js';
 import { TicketService } from './takeover/tokens.js';
 import { TakeoverService, RemoteTakeoverHandler } from './takeover/service.js';
-import { Notifier } from './notify/notifier.js';
-import { LogNotificationChannel } from './notify/channels/log.js';
-import { WebhookNotificationChannel } from './notify/channels/webhook.js';
-import { EmailNotificationChannel } from './notify/channels/email.js';
+import { buildNotifier, deliverRunFailure, warnMissingChannels } from './notify/build.js';
 import { createServe } from './serve.js';
 
 /** Exit code used for validation / usage errors (distinct from runtime errors). */
@@ -272,20 +269,26 @@ async function runCommand(
     secret: effectiveConfig.SECRET,
     ttlSeconds: effectiveConfig.TAKEOVER_TTL_SECONDS,
   });
-  const notifier = new Notifier(logger);
-  notifier.register(new LogNotificationChannel(logger));
-  if (effectiveConfig.WEBHOOK_URL) {
-    notifier.register(new WebhookNotificationChannel({ url: effectiveConfig.WEBHOOK_URL }));
-  }
-  if (effectiveConfig.SMTP_URL && effectiveConfig.NOTIFY_TO) {
-    notifier.register(
-      new EmailNotificationChannel({
-        transport: effectiveConfig.SMTP_URL,
-        to: effectiveConfig.NOTIFY_TO,
-        subjectPrefix: '[RoboBrowser]',
-      }),
-    );
-  }
+  const notifier = buildNotifier(
+    {
+      ...(effectiveConfig.WEBHOOK_URL ? { webhookUrl: effectiveConfig.WEBHOOK_URL } : {}),
+      ...(effectiveConfig.SMTP_URL ? { smtpUrl: effectiveConfig.SMTP_URL } : {}),
+      ...(effectiveConfig.NOTIFY_TO ? { notifyTo: effectiveConfig.NOTIFY_TO } : {}),
+      ...(effectiveConfig.FEISHU_WEBHOOK_URL
+        ? { feishuWebhookUrl: effectiveConfig.FEISHU_WEBHOOK_URL }
+        : {}),
+      ...(effectiveConfig.FEISHU_SECRET ? { feishuSecret: effectiveConfig.FEISHU_SECRET } : {}),
+      ...(effectiveConfig.DINGTALK_WEBHOOK_URL
+        ? { dingtalkWebhookUrl: effectiveConfig.DINGTALK_WEBHOOK_URL }
+        : {}),
+      ...(effectiveConfig.DINGTALK_SECRET
+        ? { dingtalkSecret: effectiveConfig.DINGTALK_SECRET }
+        : {}),
+    },
+    logger,
+  );
+  const requestedChannels = notifyChannels(effectiveConfig);
+  warnMissingChannels(notifier, requestedChannels, logger);
 
   // Construct the takeover service eagerly so the manual handler has no
   // lazy-init race against the first manual step.
@@ -335,6 +338,23 @@ async function runCommand(
       ...(result.error ? { error: result.error } : {}),
     };
     process.stdout.write(`${JSON.stringify(summary, null, 2)}\n`);
+
+    // Unattended `automate run` invocations (cron, CI) must not fail silently:
+    // push the same notice the queue worker sends when a run stops early.
+    if (result.status !== 'success' && effectiveConfig.NOTIFY_ON_FAILURE) {
+      await deliverRunFailure(notifier, requestedChannels, result, logger, {
+        runDir,
+        onResult: (results) => {
+          for (const entry of results) {
+            if (!entry.ok) {
+              process.stderr.write(
+                `warning: run-failure notification via ${entry.channel} failed: ${entry.error ?? 'unknown'}\n`,
+              );
+            }
+          }
+        },
+      });
+    }
     return result.status === 'success' ? 0 : 1;
   } catch (error) {
     const robo = toRoboError(error);
@@ -410,3 +430,4 @@ if (isMain) {
 }
 
 void RoboError;
+

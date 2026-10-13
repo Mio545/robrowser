@@ -46,6 +46,23 @@ export const serverConfigSchema = z.object({
   SMTP_URL: z.string().optional(),
   /** Default notification recipient. */
   NOTIFY_TO: z.string().optional(),
+  /** Feishu (Lark) custom-bot webhook for the `feishu` channel. */
+  FEISHU_WEBHOOK_URL: z.string().optional(),
+  /** Feishu bot signing secret (set when signature verification is enabled). */
+  FEISHU_SECRET: z.string().optional(),
+  /** DingTalk custom-robot webhook (including `access_token`) for `dingtalk`. */
+  DINGTALK_WEBHOOK_URL: z.string().optional(),
+  /** DingTalk robot signing secret (`SEC...`). */
+  DINGTALK_SECRET: z.string().optional(),
+  /**
+   * Notify on terminal run failures (step error / timeout / abort), not only on
+   * `manual` steps. `true` by default so an unattended scheduler does not
+   * fail silently.
+   */
+  NOTIFY_ON_FAILURE: z
+    .string()
+    .default('true')
+    .transform((value) => value !== 'false' && value !== '0'),
   /** Maximum concurrent worker processes. */
   MAX_CONCURRENCY: z.coerce.number().int().positive().default(2),
   /** Per-task timeout in milliseconds. */

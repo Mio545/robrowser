@@ -176,6 +176,91 @@ node packages/server/dist/cli.js serve --host 0.0.0.0 --port 8080
 - 接管会话被绑定到单个 page，无法触达其他 run；操作必须在 token 有效期内完成。
 - 审计日志记录 who / when / runId / stepId / 时长 / 结果，级别为 `warn`。
 
+### 通知渠道：飞书 / 钉钉 / 邮件 / Webhook
+
+脚本跑不下去时必须有人知道，否则自动化会静默失败。RoboBrowser 内置五种渠道，
+**同一套配置同时服务于「人机验证等人接管」与「运行失败」两类事件**：
+
+| 渠道       | 触发方式                                      | 配置                                                 |
+| ---------- | --------------------------------------------- | ---------------------------------------------------- |
+| `feishu`   | 群机器人（interactive 卡片，按钮可直接点开接管页） | `FEISHU_WEBHOOK_URL` +（开启签名时）`FEISHU_SECRET`   |
+| `dingtalk` | 群机器人（默认 markdown，可点击链接）         | `DINGTALK_WEBHOOK_URL` +（开启加签时）`DINGTALK_SECRET` |
+| `email`    | `smtp://`（需 `nodemailer`）或 HTTP 邮件网关  | `SMTP_URL` + `NOTIFY_TO`                             |
+| `webhook`  | 通用 HTTP JSON 回调（Slack / 企业微信 / n8n） | `WEBHOOK_URL`                                        |
+| `log`      | 写日志，永远可用（兜底）                      | 无需配置                                             |
+
+两类事件：
+
+1. **需要人工接管**（`takeover`）：流程走到 `manual` 步骤（验证码、短信、扫脸…）时，
+   把 `<PUBLIC_URL>/takeover/?ticket=...` 推给你，手机点一下就能远程操作；
+2. **运行失败**（`run-failed`）：步骤报错、超时、被中止、worker 崩溃时推送失败原因、
+   卡住的步骤与运行目录。由 `NOTIFY_ON_FAILURE`（默认 `true`）控制。
+
+#### 飞书群机器人
+
+1. 目标群 → 设置 → 群机器人 → 添加机器人 → **自定义机器人**；
+2. 复制 Webhook 地址（`https://open.feishu.cn/open-apis/bot/v2/hook/xxx`）；
+3. 建议开启 **签名校验** 并复制密钥，然后配置：
+
+```bash
+export FEISHU_WEBHOOK_URL="https://open.feishu.cn/open-apis/bot/v2/hook/xxx"
+export FEISHU_SECRET="你的签名密钥"          # 未开启签名校验可不填
+export NOTIFY_CHANNELS="feishu"             # 或写在 manual.notify 里
+```
+
+签名算法：`base64(HMAC-SHA256(key = "<timestamp>\n<secret>", data = ""))`，
+`timestamp` 与 `sign` 作为 query 参数附加在 Webhook 地址上。
+
+#### 钉钉群机器人
+
+1. 目标群 → 群设置 → 智能群助手 → 添加机器人 → **自定义（Webhook）**；
+2. 安全设置建议选 **加签**，复制以 `SEC` 开头的密钥；
+3. 配置：
+
+```bash
+export DINGTALK_WEBHOOK_URL="https://oapi.dingtalk.com/robot/send?access_token=xxx"
+export DINGTALK_SECRET="SECxxxx"            # 未开启加签可不填
+export NOTIFY_CHANNELS="dingtalk"
+```
+
+签名算法：`base64(HMAC-SHA256(key = "SECxxx", data = "<timestamp>\nSECxxx")`，
+同样以 `timestamp` / `sign` 查询参数附加。
+
+> 钉钉机器人若用「自定义关键词」而非加签，请把关键词包含在消息里；
+> 卡片标题固定为 `Manual takeover required (reason)` / `Run stopped and needs attention (reason)`。
+
+#### 邮件
+
+```bash
+# 方式一：SMTP（需要安装可选依赖 nodemailer）
+pnpm add -w nodemailer
+export SMTP_URL="smtp://user:pass@smtp.example.com:587"
+export NOTIFY_TO="ops@example.com"
+
+# 方式二：HTTP 邮件网关 / 自建转发服务
+export SMTP_URL="https://mail-gateway.example.com/send"
+export NOTIFY_TO="ops@example.com"
+```
+
+#### 通用 Webhook
+
+```bash
+export WEBHOOK_URL="https://hooks.example.com/robrowser"
+```
+
+POST 的 JSON 里 `type` 为 `takeover.requested` 或 `run.failed`，`fields` 是可直接
+渲染的 `key → value` 表，`text` 是排版好的纯文本（Slack / 企业微信 / n8n 可直接转发）。
+
+#### 渠道的行为约定
+
+- **只有失败与待接管才通知**：成功的 run 不发消息，不会被通知刷屏。
+- **通知永远不会影响流程**：单个渠道报错只写日志，其余渠道照常发送，run 的状态
+  与退出码不受影响。
+- **未配置的渠道会明确报错**：在 `NOTIFY_CHANNELS` / `manual.notify` 里写了
+  `feishu` 却没配 `FEISHU_WEBHOOK_URL` 时，启动日志会给出 `missing` 警告，
+  该渠道在投递时失败而不是静默丢弃。
+- **一次性 ticket 有有效期**（默认 `TAKEOVER_TTL_SECONDS=600`），过期后需要重新触发。
+
 ## 环境变量
 
 | 变量                     | 默认值                          | 说明                                             |
@@ -197,13 +282,19 @@ node packages/server/dist/cli.js serve --host 0.0.0.0 --port 8080
 | `LOG_LEVEL`              | `info`                          | `fatal`…`trace` / `silent`                       |
 | `NOTIFY_CHANNELS`        | `log`                           | 未在 `manual.notify` 中指定时使用的渠道          |
 | `WEBHOOK_URL`            | 未设置                          | `webhook` 通知渠道地址                           |
-| `SMTP_URL`               | 未设置                          | `email` 通知渠道的 SMTP 连接串                   |
+| `FEISHU_WEBHOOK_URL`     | 未设置                          | 飞书自定义机器人 Webhook 地址                    |
+| `FEISHU_SECRET`          | 未设置                          | 飞书机器人签名密钥（开启签名校验时必填）         |
+| `DINGTALK_WEBHOOK_URL`   | 未设置                          | 钉钉机器人 Webhook 地址（含 `access_token`）     |
+| `DINGTALK_SECRET`        | 未设置                          | 钉钉机器人加签密钥（以 `SEC` 开头）              |
+| `SMTP_URL`               | 未设置                          | `email` 通知渠道的 SMTP 连接串或 HTTP 网关       |
 | `NOTIFY_TO`              | 未设置                          | 邮件默认收件人                                   |
+| `NOTIFY_ON_FAILURE`      | `true`                          | 运行失败（报错/超时/中止）时是否也推送通知       |
 | `TZ`                     | 容器内 `Asia/Shanghai`          | 时区，影响日志与截图时间戳                       |
 | `LANG` / `LC_ALL`        | 容器内 `C.UTF-8`                | 语言环境                                         |
 
-流程级覆盖：`manual` 步骤的 `notify: ["webhook","email","log"]` 决定该次接管用哪些
-渠道；不写则用 `NOTIFY_CHANNELS`。
+流程级覆盖：`manual` 步骤的 `notify: ["feishu","dingtalk","email","webhook","log"]`
+决定该次接管用哪些渠道；不写则用 `NOTIFY_CHANNELS`。运行失败通知使用同一份
+`NOTIFY_CHANNELS`（受 `NOTIFY_ON_FAILURE` 开关控制）。
 
 ## 无头模式：headless=new vs Xvfb
 

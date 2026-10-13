@@ -9,24 +9,27 @@
  * is missing, the channel fails with a clear, actionable error instead of
  * crashing the process.
  */
-import type { NotificationChannel, TakeoverNotice } from '../notifier.js';
+import type { NotificationChannel, NotifyNotice } from '../notifier.js';
+import { noticeText, noticeTitle } from '../format.js';
+import { postJson } from '../http.js';
 
 /** Options for {@link EmailNotificationChannel}. */
 export interface EmailOptions {
   /** `smtp://user:pass@host:port` or an HTTP endpoint. */
   transport: string;
-  /** Recipient address. */
+  /** Recipient address (comma separated for several recipients). */
   to: string;
   /** Sender address. */
   from?: string;
   /** Subject prefix. */
   subjectPrefix?: string;
+  /** Delivery timeout in milliseconds (HTTP transport only). */
+  timeoutMs?: number;
   /** Injectable fetch for the HTTP transport (tests). */
   fetchImpl?: typeof fetch;
 }
 
-/** Minimal structural type for the optional \
-odemailer\ module. */
+/** Minimal structural type for the optional `nodemailer` module. */
 interface NodemailerLike {
   createTransport(url: string): {
     sendMail(message: {
@@ -38,7 +41,7 @@ interface NodemailerLike {
   };
 }
 
-/** Sends takeover notices by email. */
+/** Sends notices by email. */
 export class EmailNotificationChannel implements NotificationChannel {
   public readonly name = 'email';
   private readonly fetchImpl: typeof fetch;
@@ -47,25 +50,17 @@ export class EmailNotificationChannel implements NotificationChannel {
     this.fetchImpl = options.fetchImpl ?? fetch;
   }
 
-  public async send(notice: TakeoverNotice): Promise<void> {
-    const subject = `${this.options.subjectPrefix ?? '[RoboBrowser]'} Manual takeover required (${notice.reason}) — run ${notice.runId}`;
-    const body = [
-      `Run: ${notice.runId}`,
-      `Step: ${notice.stepId}`,
-      `Reason: ${notice.reason}`,
-      `Message: ${notice.message}`,
-      `Link expires: ${notice.expiresAt}`,
-      '',
-      `Open: ${notice.url}`,
-    ].join('\n');
+  public async send(notice: NotifyNotice): Promise<void> {
+    const subject = `${this.options.subjectPrefix ?? '[RoboBrowser]'} ${noticeTitle(notice)} - run ${notice.runId}`;
+    const body = noticeText(notice);
 
     if (/^https?:\/\//.test(this.options.transport)) {
-      const response = await this.fetchImpl(this.options.transport, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ to: this.options.to, from: this.options.from, subject, text: body }),
-        signal: AbortSignal.timeout(15_000),
-      });
+      const response = await postJson(
+        this.fetchImpl,
+        this.options.transport,
+        { to: this.options.to, from: this.options.from, subject, text: body },
+        { channel: 'email', timeoutMs: this.options.timeoutMs ?? 15_000 },
+      );
       if (!response.ok) throw new Error(`email API responded ${response.status}`);
       return;
     }
@@ -83,7 +78,7 @@ export class EmailNotificationChannel implements NotificationChannel {
       nodemailer = (await import(moduleName)) as NodemailerLike;
     } catch {
       throw new Error(
-        'SMTP email channel requires the optional "nodemailer" dependency. Install it or use the webhook/log channel.',
+        'SMTP email channel requires the optional "nodemailer" dependency. Install it or use the webhook/feishu/dingtalk/log channel.',
       );
     }
     const transport = nodemailer.createTransport(this.options.transport);

@@ -76,6 +76,8 @@ export interface RunResult {
   durationMs: number;
   artifacts: string[];
   error?: { code: string; message: string };
+  /** Id of the step that stopped the run, when one can be identified. */
+  failedStepId?: string;
   variables: Record<string, unknown>;
   startedAt: string;
   finishedAt: string;
@@ -172,11 +174,13 @@ export class Orchestrator {
     let status: RunResult['status'] = 'success';
     let reason: RunStopReason = 'completed';
     let error: RoboError | undefined;
+    let failedStepId: string | undefined;
 
     this.registerAbortHandler();
 
     try {
       const outcome = await this.executeSteps(flow.steps, [], options.resumeFrom);
+      failedStepId = outcome.failedStepId;
       if (outcome.status === 'fail') {
         // An aborted run is a distinct terminal state, not a generic failure.
         const aborted = outcome.error?.code === 'RUN_ABORTED';
@@ -219,6 +223,7 @@ export class Orchestrator {
       durationMs: finishedAt.getTime() - startedAt.getTime(),
       artifacts: this.artifacts.list(),
       ...(error ? { error: { code: error.code, message: error.message } } : {}),
+      ...(failedStepId ? { failedStepId } : {}),
       variables: this.variablesSnapshot(),
       startedAt: startedAt.toISOString(),
       finishedAt: finishedAt.toISOString(),

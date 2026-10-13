@@ -28,9 +28,22 @@ export type ParentMessage =
       secret: string;
       /** Default notification channels. */
       notifyChannels: string[];
+      /** Generic `webhook` channel target. */
       webhookUrl?: string;
       /** Default recipient for the email channel. */
       notifyTo?: string;
+      /** Feishu custom-bot webhook. */
+      feishuWebhookUrl?: string;
+      /** Feishu signing secret. */
+      feishuSecret?: string;
+      /** DingTalk robot webhook. */
+      dingtalkWebhookUrl?: string;
+      /** DingTalk signing secret. */
+      dingtalkSecret?: string;
+      /** SMTP connection string for the email channel. */
+      smtpUrl?: string;
+      /** Whether terminal run failures produce a notification. */
+      notifyOnFailure: boolean;
       /** Public origin the operator sees (the parent's PUBLIC_URL). */
       publicUrl: string;
     }

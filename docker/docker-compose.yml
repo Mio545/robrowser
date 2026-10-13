@@ -40,6 +40,17 @@ services:
       MAX_CONCURRENCY: '${MAX_CONCURRENCY:-2}'
       TASK_TIMEOUT_MS: '${TASK_TIMEOUT_MS:-900000}'
       TASK_RETRIES: '${TASK_RETRIES:-1}'
+      # Notifications. The service must be able to reach these endpoints from
+      # inside the container (see README "通知渠道").
+      NOTIFY_CHANNELS: '${NOTIFY_CHANNELS:-log}'
+      NOTIFY_ON_FAILURE: '${NOTIFY_ON_FAILURE:-true}'
+      WEBHOOK_URL: '${WEBHOOK_URL:-}'
+      FEISHU_WEBHOOK_URL: '${FEISHU_WEBHOOK_URL:-}'
+      FEISHU_SECRET: '${FEISHU_SECRET:-}'
+      DINGTALK_WEBHOOK_URL: '${DINGTALK_WEBHOOK_URL:-}'
+      DINGTALK_SECRET: '${DINGTALK_SECRET:-}'
+      SMTP_URL: '${SMTP_URL:-}'
+      NOTIFY_TO: '${NOTIFY_TO:-}'
     volumes:
       - robrowser-data:/data
     # Chromium needs a larger /dev/shm than the 64 MB Docker default; the

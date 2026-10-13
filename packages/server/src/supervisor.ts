@@ -162,6 +162,14 @@ export class WorkerSupervisor {
         notifyChannels: notifyChannels(config),
         ...(config.WEBHOOK_URL ? { webhookUrl: config.WEBHOOK_URL } : {}),
         ...(config.NOTIFY_TO ? { notifyTo: config.NOTIFY_TO } : {}),
+        ...(config.SMTP_URL ? { smtpUrl: config.SMTP_URL } : {}),
+        ...(config.FEISHU_WEBHOOK_URL ? { feishuWebhookUrl: config.FEISHU_WEBHOOK_URL } : {}),
+        ...(config.FEISHU_SECRET ? { feishuSecret: config.FEISHU_SECRET } : {}),
+        ...(config.DINGTALK_WEBHOOK_URL
+          ? { dingtalkWebhookUrl: config.DINGTALK_WEBHOOK_URL }
+          : {}),
+        ...(config.DINGTALK_SECRET ? { dingtalkSecret: config.DINGTALK_SECRET } : {}),
+        notifyOnFailure: config.NOTIFY_ON_FAILURE,
         publicUrl: config.PUBLIC_URL,
       });
     }).finally(() => {

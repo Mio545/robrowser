@@ -20,10 +20,8 @@ import { SqliteStorage } from './storage.js';
 import { createRuntime } from './runtime.js';
 import { TakeoverService, RemoteTakeoverHandler } from './takeover/service.js';
 import { TicketService } from './takeover/tokens.js';
-import { Notifier } from './notify/notifier.js';
-import { LogNotificationChannel } from './notify/channels/log.js';
-import { WebhookNotificationChannel } from './notify/channels/webhook.js';
-import { EmailNotificationChannel } from './notify/channels/email.js';
+import { buildNotifier, deliverRunFailure, warnMissingChannels } from './notify/build.js';
+import type { Notifier } from './notify/notifier.js';
 import type { ParentMessage, WorkerMessage, WorkerTakeoverSession } from './worker-protocol.js';
 import { setFlowBaseDir, toRoboError } from '@robrowser/core';
 
@@ -39,31 +37,24 @@ function send(message: WorkerMessage): void {
 
 /**
  * Build the notifier for this worker from the task configuration.
+ *
+ * Channel settings arrive over IPC from the parent, so the worker needs no
+ * notification environment of its own (it is forked with a minimal env).
  */
-function buildNotifier(channels: string[], webhookUrl?: string, notifyTo?: string): Notifier {
-  const notifier = new Notifier(logger);
-  notifier.register(new LogNotificationChannel(logger));
-  if (webhookUrl) notifier.register(new WebhookNotificationChannel({ url: webhookUrl }));
-  if (notifyTo) {
-    const transport = process.env.SMTP_URL;
-    if (transport) {
-      notifier.register(
-        new EmailNotificationChannel({
-          transport,
-          to: notifyTo,
-          subjectPrefix: '[RoboBrowser]',
-        }),
-      );
-    }
-  }
-  for (const channel of channels) {
-    if (channel === 'webhook' && !webhookUrl) {
-      logger.warn('webhook channel requested but WEBHOOK_URL is not set');
-    }
-    if (channel === 'email' && !process.env.SMTP_URL) {
-      logger.warn('email channel requested but SMTP_URL is not set');
-    }
-  }
+function notifierFor(message: Extract<ParentMessage, { type: 'task' }>): Notifier {
+  const notifier = buildNotifier(
+    {
+      ...(message.webhookUrl ? { webhookUrl: message.webhookUrl } : {}),
+      ...(message.smtpUrl ? { smtpUrl: message.smtpUrl } : {}),
+      ...(message.notifyTo ? { notifyTo: message.notifyTo } : {}),
+      ...(message.feishuWebhookUrl ? { feishuWebhookUrl: message.feishuWebhookUrl } : {}),
+      ...(message.feishuSecret ? { feishuSecret: message.feishuSecret } : {}),
+      ...(message.dingtalkWebhookUrl ? { dingtalkWebhookUrl: message.dingtalkWebhookUrl } : {}),
+      ...(message.dingtalkSecret ? { dingtalkSecret: message.dingtalkSecret } : {}),
+    },
+    logger,
+  );
+  warnMissingChannels(notifier, message.notifyChannels, logger);
   return notifier;
 }
 
@@ -81,7 +72,7 @@ export async function runTask(message: Extract<ParentMessage, { type: 'task' }>)
   await mkdir(runDir, { recursive: true });
 
   const tickets = new TicketService({ secret: message.secret });
-  const notifier = buildNotifier(message.notifyChannels, message.webhookUrl, message.notifyTo);
+  const notifier = notifierFor(message);
 
   // The takeover service needs the *page*, which only exists after the runtime
   // starts; we therefore create it lazily and hand it to the handler on demand.
@@ -137,6 +128,7 @@ export async function runTask(message: Extract<ParentMessage, { type: 'task' }>)
       ...(message.chromePath ? { CHROME_PATH: message.chromePath } : {}),
       ...(message.webhookUrl ? { WEBHOOK_URL: message.webhookUrl } : {}),
       ...(message.notifyTo ? { NOTIFY_TO: message.notifyTo } : {}),
+      ...(message.smtpUrl ? { SMTP_URL: message.smtpUrl } : {}),
     } as never,
     manual: {
       request: async (req) => {
@@ -194,6 +186,12 @@ export async function runTask(message: Extract<ParentMessage, { type: 'task' }>)
     if (result.status === 'success') {
       send({ type: 'done', result });
     } else {
+      // A run that stops without succeeding needs attention. CAPTCHA and friends
+      // are covered by the `manual` step; this covers step errors, timeouts,
+      // aborts and browser crashes.
+      if (message.notifyOnFailure) {
+        await deliverRunFailure(notifier, message.notifyChannels, result, logger);
+      }
       send({
         type: 'done',
         result,
@@ -205,6 +203,24 @@ export async function runTask(message: Extract<ParentMessage, { type: 'task' }>)
     }
   } catch (thrown) {
     const error = toRoboError(thrown);
+    // Hard failures (browser launch failure, crash) never produce a RunResult,
+    // so build a synthetic one to keep the notification shape uniform.
+    if (message.notifyOnFailure) {
+      await deliverRunFailure(notifier, message.notifyChannels, {
+        runId,
+        flowId: flow.id,
+        flowName: flow.name,
+        status: 'failed',
+        reason: 'error',
+        stepCount: 0,
+        durationMs: 0,
+        artifacts: [],
+        error: { code: error.code, message: error.message },
+        variables: {},
+        startedAt: new Date().toISOString(),
+        finishedAt: new Date().toISOString(),
+      }, logger);
+    }
     send({ type: 'done', error: { code: error.code, message: error.message } });
   } finally {
     process.off('message', onMessage);

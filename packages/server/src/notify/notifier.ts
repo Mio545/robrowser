@@ -1,24 +1,50 @@
 /**
  * Notification abstraction (spec 8.7).
  *
- * A notifier fans a single {@link TakeoverNotice} out to several channels. Every
+ * A notifier fans a single {@link NotifyNotice} out to several channels. Every
  * channel must be non-throwing: a failed email must never break the flow, but it
  * must be logged.
+ *
+ * Two kinds of notice travel through the same pipeline:
+ * - `takeover`   - a `manual` step is waiting for a human (CAPTCHA, SMS, ...);
+ * - `run-failed` - a run stopped and needs attention (step error, timeout,
+ *                  abort, worker crash).
  */
 import type { Logger } from 'pino';
 
-/** A notification about a pending takeover. */
-export interface TakeoverNotice {
+/** What a notice is about. */
+export type NoticeKind = 'takeover' | 'run-failed';
+
+/** A notification that a run needs a human - or has already given up. */
+export interface NotifyNotice {
+  /**
+   * Notice category. `takeover` asks the operator to act on a live page,
+   * `run-failed` reports that a run stopped and needs attention. Defaults to
+   * `takeover` so existing callers keep their behaviour.
+   */
+  kind?: NoticeKind;
+  /** Run identifier. */
   runId: string;
+  /** Step that triggered the notice; empty for run-level failures. */
   stepId: string;
+  /** Machine-readable reason (`captcha`, `sms`, `STEP_TIMEOUT`, ...). */
   reason: string;
+  /** Human-readable description. */
   message: string;
-  /** Full URL the operator should open. */
-  url: string;
-  /** Ticket expiry (ISO). */
-  expiresAt: string;
-  sessionId: string;
+  /** Full URL the operator should open (takeover notices). */
+  url?: string;
+  /** Ticket expiry, ISO string (takeover notices). */
+  expiresAt?: string;
+  /** Takeover session id (takeover notices). */
+  sessionId?: string;
+  /** Flow name, when known (run-failed notices). */
+  flowName?: string;
+  /** Extra context rendered by the channels (run-failed notices). */
+  details?: Record<string, string | number | boolean | undefined>;
 }
+
+/** A notification about a pending takeover. */
+export type TakeoverNotice = NotifyNotice;
 
 /** Delivery result for one channel. */
 export interface DeliveryResult {
@@ -32,7 +58,7 @@ export interface NotificationChannel {
   /** Stable name used in `manual.notify` lists. */
   readonly name: string;
   /** Deliver a notice. Implementations should throw on failure. */
-  send(notice: TakeoverNotice): Promise<void>;
+  send(notice: NotifyNotice): Promise<void>;
 }
 
 /**
@@ -66,7 +92,7 @@ export class Notifier {
    */
   public async notify(
     requested: readonly string[],
-    notice: TakeoverNotice,
+    notice: NotifyNotice,
   ): Promise<DeliveryResult[]> {
     const names = requested.length > 0 ? requested : ['log'];
     const results: DeliveryResult[] = [];
@@ -80,12 +106,15 @@ export class Notifier {
       try {
         await channel.send(notice);
         results.push({ channel: name, ok: true });
-        this.logger?.info({ channel: name, runId: notice.runId }, 'takeover notification sent');
+        this.logger?.info(
+          { channel: name, runId: notice.runId, kind: notice.kind ?? 'takeover' },
+          'notification delivered',
+        );
       } catch (error) {
         results.push({ channel: name, ok: false, error: (error as Error).message });
         this.logger?.error(
           { channel: name, err: (error as Error).message },
-          'takeover notification failed',
+          'notification delivery failed',
         );
       }
     }

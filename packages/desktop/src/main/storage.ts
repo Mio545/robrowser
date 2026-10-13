@@ -8,8 +8,22 @@
 import Database from 'better-sqlite3';
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
-import type { FlowModel, RunResult } from '@robrowser/core';
+import type { CredentialSummary, FlowModel, RunResult } from '@robrowser/core';
 import type { FlowSummary, RunSummary } from '../shared/types.js';
+
+/**
+ * One `credentials` row as stored on disk.
+ *
+ * `secret` holds the OS-keychain ciphertext for the password; the plaintext is
+ * never written here and the column is never handed to the renderer.
+ */
+export interface StoredCredentialRow {
+  key: string;
+  username?: string;
+  secret?: Buffer;
+  url?: string;
+  updatedAt: string;
+}
 
 /** SQLite-backed desktop store. */
 export class DesktopStorage {
@@ -46,6 +60,13 @@ export class DesktopStorage {
         error_message TEXT
       );
       CREATE INDEX IF NOT EXISTS idx_desktop_runs_started ON runs (started_at DESC);
+      CREATE TABLE IF NOT EXISTS credentials (
+        key TEXT PRIMARY KEY,
+        username TEXT,
+        secret BLOB,
+        url TEXT,
+        updated_at TEXT NOT NULL
+      );
     `);
   }
 
@@ -90,6 +111,63 @@ export class DesktopStorage {
   /** Delete a flow. */
   public deleteFlow(id: string): void {
     this.db.prepare('DELETE FROM flows WHERE id = ?').run(id);
+  }
+
+  /** Read one credential row, including the encrypted password blob. */
+  public getCredential(key: string): StoredCredentialRow | undefined {
+    const row = this.db
+      .prepare('SELECT key, username, secret, url, updated_at FROM credentials WHERE key = ?')
+      .get(key) as CredentialRow | undefined;
+    return row ? toCredentialRow(row) : undefined;
+  }
+
+  /** Insert or replace a credential row. */
+  public saveCredential(row: StoredCredentialRow): void {
+    this.db
+      .prepare(
+        `INSERT INTO credentials (key, username, secret, url, updated_at)
+         VALUES (@key, @username, @secret, @url, @updatedAt)
+         ON CONFLICT(key) DO UPDATE SET
+           username = @username, secret = @secret, url = @url, updated_at = @updatedAt`,
+      )
+      .run({
+        key: row.key,
+        username: row.username ?? null,
+        secret: row.secret ?? null,
+        url: row.url ?? null,
+        updatedAt: row.updatedAt,
+      });
+  }
+
+  /** Delete a credential row; `true` when a row was removed. */
+  public deleteCredential(key: string): boolean {
+    return this.db.prepare('DELETE FROM credentials WHERE key = ?').run(key).changes > 0;
+  }
+
+  /**
+   * Redacted credential metadata for the UI.
+   *
+   * The `secret` column is deliberately not selected: the renderer has no
+   * keychain key, so it must never receive the ciphertext at all.
+   */
+  public listCredentials(): CredentialSummary[] {
+    return this.db
+      .prepare('SELECT key, username, url, updated_at FROM credentials ORDER BY key')
+      .all()
+      .map((row) => {
+        const record = row as {
+          key: string;
+          username: string | null;
+          url: string | null;
+          updated_at: string;
+        };
+        return {
+          key: record.key,
+          ...(record.username ? { username: record.username } : {}),
+          ...(record.url ? { url: record.url } : {}),
+          ...(record.updated_at ? { updatedAt: record.updated_at } : {}),
+        };
+      });
   }
 
   /** Persist the outcome of a run. */
@@ -148,4 +226,24 @@ export class DesktopStorage {
   public close(): void {
     this.db.close();
   }
+}
+
+/** Raw `credentials` row as SQLite returns it (nullable columns). */
+interface CredentialRow {
+  key: string;
+  username: string | null;
+  secret: Buffer | null;
+  url: string | null;
+  updated_at: string;
+}
+
+/** Drop the SQL NULLs so the rest of the app sees optional fields. */
+function toCredentialRow(row: CredentialRow): StoredCredentialRow {
+  return {
+    key: row.key,
+    ...(row.username !== null ? { username: row.username } : {}),
+    ...(row.secret !== null ? { secret: row.secret } : {}),
+    ...(row.url !== null ? { url: row.url } : {}),
+    updatedAt: row.updated_at,
+  };
 }

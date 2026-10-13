@@ -10,6 +10,9 @@
  *   automate import <script.js> [--target playwright|raw-cdp] [--out <flow.json>]
  *   automate serve [--port <n>] [--host <h>]
  *   automate takeover <flow.json> [--headless]         # CLI run that allows takeover
+ *   automate credentials list
+ *   automate credentials set <name> [--username <u>] [--url <url>] [--password <p> | --password-env <VAR>]
+ *   automate credentials delete <name>
  */
 import { z } from 'zod';
 import { ValidationError } from '@robrowser/core';
@@ -36,6 +39,17 @@ export type CliCommand =
       out?: string;
     }
   | { kind: 'serve'; host?: string; port?: number }
+  | { kind: 'credentials-list' }
+  | {
+      kind: 'credentials-set';
+      key: string;
+      username?: string;
+      password?: string;
+      /** Name of an environment variable to read the password from. */
+      passwordEnv?: string;
+      url?: string;
+    }
+  | { kind: 'credentials-delete'; key: string }
   | { kind: 'help' }
   | { kind: 'version' };
 
@@ -149,6 +163,41 @@ export function parseArgs(argv: readonly string[]): ParseResult {
         warnings,
       };
     }
+    case 'credentials': {
+      const action = positionals[0];
+      if (action === 'list') {
+        return { command: { kind: 'credentials-list' }, warnings };
+      }
+      if (action === 'set') {
+        const key = positionals[1];
+        if (!key) {
+          throw new ValidationError(
+            'Usage: automate credentials set <name> [--username <u>] [--url <url>] ' +
+              '[--password <p> | --password-env <VAR>]',
+          );
+        }
+        const password = typeof flags.password === 'string' ? flags.password : undefined;
+        const passwordEnv =
+          typeof flags['password-env'] === 'string' ? flags['password-env'] : undefined;
+        return {
+          command: {
+            kind: 'credentials-set',
+            key,
+            ...(typeof flags.username === 'string' ? { username: flags.username } : {}),
+            ...(password !== undefined ? { password } : {}),
+            ...(passwordEnv !== undefined ? { passwordEnv } : {}),
+            ...(typeof flags.url === 'string' ? { url: flags.url } : {}),
+          },
+          warnings,
+        };
+      }
+      if (action === 'delete') {
+        const key = positionals[1];
+        if (!key) throw new ValidationError('Usage: automate credentials delete <name>');
+        return { command: { kind: 'credentials-delete', key }, warnings };
+      }
+      throw new ValidationError('Usage: automate credentials list|set|delete');
+    }
     default:
       throw new ValidationError(`Unknown command "${sub}". Run "automate help" for usage.`);
   }
@@ -223,10 +272,15 @@ Usage:
   automate import <script.js> [--target playwright|raw-cdp] [--out <flow.json>]
   automate serve [--host <host>] [--port <port>]
   automate takeover <flow.json> [--headless] [--out <dir>]
+  automate credentials list
+  automate credentials set <name> [--username <u>] [--url <url>] [--password-env <VAR>]
+  automate credentials delete <name>
 
 Environment:
   CHROME_PATH   Chromium/Chrome executable override
   RUN_DIR       Directory for artefacts and checkpoints (default ./run)
   SECRET        Signing secret for takeover tickets
   ROBO_OUT      Output directory used by exported scripts
+  ROBO_CREDENTIALS_FILE  Web-login vault file (default <RUN_DIR>/credentials.json)
+  ROBO_CREDENTIALS_KEY   Vault encryption key (falls back to SECRET)
 `;

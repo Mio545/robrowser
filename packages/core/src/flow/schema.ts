@@ -130,7 +130,20 @@ export type VariableDef =
   | { type: 'const'; value: unknown }
   | { type: 'env'; key: string; default?: string }
   | { type: 'secret'; key: string; default?: string }
-  | { type: 'input'; label: string; default?: string };
+  | { type: 'input'; label: string; default?: string }
+  | {
+      /**
+       * Web login saved in the host credential vault. The flow only stores the
+       * credential *name*, never the password itself; at run time the value
+       * resolves to `{ username, password, url? }`, so a step can interpolate
+       * `{{login.username}}` / `{{login.password}}`.
+       */
+      type: 'credential';
+      /** Credential name in the host vault (see the desktop “凭据” panel). */
+      key: string;
+      /** Optional login URL, informational only. */
+      url?: string;
+    };
 
 export const variableDefSchema: z.ZodType<VariableDef> = z.union([
   z.object({ type: z.literal('const'), value: requiredUnknown() }).strict(),
@@ -142,6 +155,13 @@ export const variableDefSchema: z.ZodType<VariableDef> = z.union([
     .strict(),
   z
     .object({ type: z.literal('input'), label: z.string().min(1), default: z.string().optional() })
+    .strict(),
+  z
+    .object({
+      type: z.literal('credential'),
+      key: z.string().min(1),
+      url: z.string().optional(),
+    })
     .strict(),
 ]) as unknown as z.ZodType<VariableDef>;
 

@@ -4,6 +4,9 @@
  * The generated script is standalone: it requires only `playwright` plus a local
  * Chromium build. Mapping rules:
  * - `env` / `secret` variables become `process.env` lookups with optional default.
+ * - `credential` variables become `process.env.ROBO_CRED_<NAME>_USERNAME/PASSWORD`
+ *   lookups: a generated script has no access to the host vault, and baking a
+ *   password into the file would leak it.
  * - `input` variables read `ROBO_<LABEL>` and fall back to their declared default.
  * - `{{var}}` interpolation becomes a `vars[...]` lookup inside a template literal.
  * - `SelectorSpec.candidates` becomes a `firstMatch()` helper tried in order.
@@ -11,6 +14,7 @@
  */
 import type { Condition, FlowModel, SelectorSpec, Step, VariableDef } from '../flow/schema.js';
 import { ExportError } from '../errors.js';
+import { credentialEnvKeys } from '../credentials/store.js';
 
 /** Options for {@link exportPlaywright}. */
 export interface ExportOptions {
@@ -495,6 +499,8 @@ function renderVariable(name: string, def: VariableDef): string {
       return def.default !== undefined
         ? `process.env[${JSON.stringify(def.key)}] ?? ${JSON.stringify(def.default)}`
         : `process.env[${JSON.stringify(def.key)}]`;
+    case 'credential':
+      return renderCredential(def);
     case 'input': {
       const envKey = `ROBO_${name.toUpperCase().replace(/\W+/g, '_')}`;
       return def.default !== undefined
@@ -506,6 +512,21 @@ function renderVariable(name: string, def: VariableDef): string {
       return String(exhaustive);
     }
   }
+}
+
+/**
+ * Render a 'credential' declaration.
+ *
+ * The password is never baked into the generated file; the script reads it from
+ * the two environment variables documented in the exporter header, which the
+ * importer recognises to round-trip back into a 'credential' declaration.
+ */
+function renderCredential(def: Extract<VariableDef, { type: 'credential' }>): string {
+  const env = credentialEnvKeys(def.key);
+  const marker = def.url
+    ? `__roboCredential: ${JSON.stringify(def.key)}, url: ${JSON.stringify(def.url)}`
+    : `__roboCredential: ${JSON.stringify(def.key)}`;
+  return `{ ${marker}, username: process.env[${JSON.stringify(env.username)}] ?? '', password: process.env[${JSON.stringify(env.password)}] ?? '' }`;
 }
 
 function quoteKey(key: string): string {

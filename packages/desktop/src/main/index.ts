@@ -21,9 +21,12 @@ import {
   detectImportTarget,
   exportFlow,
   importFlow,
+  type CredentialInput,
+  type CredentialStore,
   type FlowModel,
 } from '@robrowser/core';
 import { DesktopStorage } from './storage.js';
+import { DesktopCredentialVault, UnavailableCredentialVault } from './credential-vault.js';
 import { createCdpBridge, type CdpBridge } from './cdp-bridge.js';
 import { LocalManualHandler } from './manual-handler.js';
 import { RunController } from './run-controller.js';
@@ -60,6 +63,10 @@ let mainWindow: BrowserWindow | undefined;
 let browserView: WebContentsView | undefined;
 let bridge: CdpBridge | undefined;
 let storage: DesktopStorage | undefined;
+/** Web-login vault; backs `credential` variables and the credentials panel. */
+let vault: CredentialStore | undefined;
+/** Reason the vault is degraded, surfaced to the renderer instead of failing silently. */
+let vaultUnavailableReason: string | undefined;
 let controller: RunController | undefined;
 let manual: LocalManualHandler | undefined;
 /** Automation-host readiness, reported to the renderer on demand. */
@@ -184,6 +191,19 @@ async function bootstrapAutomation(): Promise<void> {
   const userData = app.getPath('userData');
   storage ??= new DesktopStorage(userData);
 
+  // The vault must exist before the controller so a run started immediately
+  // after bootstrap can already resolve `credential` variables.
+  if (!vault) {
+    try {
+      vault = new DesktopCredentialVault(storage, logger);
+      vaultUnavailableReason = undefined;
+    } catch (error) {
+      vaultUnavailableReason = (error as Error).message;
+      vault = new UnavailableCredentialVault(vaultUnavailableReason);
+      logger.error({ err: String(error) }, 'credential vault unavailable');
+    }
+  }
+
   // The view must host a live renderer before CDP is attached: on a brand-new
   // WebContentsView, `Page.enable` never resolves because there is no renderer
   // process yet. Navigating to about:blank first creates it.
@@ -216,6 +236,7 @@ async function bootstrapAutomation(): Promise<void> {
     page: bridge.page,
     runDir: join(userData, 'runs'),
     manual,
+    credentialStore: vault,
   });
   controller.on('event', (event) => emit('run:event', event));
   controller.on('end', (result) => {
@@ -254,6 +275,40 @@ function registerIpc(): void {
   });
 
   ipcMain.handle('runs:list', (_event, limit?: number) => storage?.listRuns(limit ?? 50) ?? []);
+
+  /* --------------------------------------------------------- credentials */
+
+  ipcMain.handle('credentials:list', async () => vault?.list() ?? []);
+
+  ipcMain.handle('credentials:save', async (_event, input: CredentialInput) => {
+    if (!vault) return { ok: false, error: '凭据存储未就绪' };
+    try {
+      await vault.set(input);
+      return { ok: true };
+    } catch (error) {
+      // A missing keychain is the common case here, so the message is shown
+      // verbatim in the panel instead of being reduced to a generic failure.
+      return { ok: false, error: (error as Error).message };
+    }
+  });
+
+  ipcMain.handle('credentials:delete', async (_event, key: string) => {
+    if (!vault) return { ok: false };
+    return { ok: await vault.delete(key) };
+  });
+
+  ipcMain.handle('credentials:available', () => {
+    if (vaultUnavailableReason !== undefined) {
+      return { available: false, reason: vaultUnavailableReason };
+    }
+    if (vault instanceof DesktopCredentialVault && !vault.encryptionAvailable) {
+      return {
+        available: false,
+        reason: '系统凭据库不可用：当前系统不支持加密存储，只能保存用户名。',
+      };
+    }
+    return { available: true };
+  });
 
   ipcMain.handle(
     'runs:start',

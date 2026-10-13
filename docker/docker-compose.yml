@@ -51,6 +51,11 @@ services:
       DINGTALK_SECRET: '${DINGTALK_SECRET:-}'
       SMTP_URL: '${SMTP_URL:-}'
       NOTIFY_TO: '${NOTIFY_TO:-}'
+      # Web-login vault. Defaults to <RUN_DIR>/credentials.json inside the
+      # mounted volume; passwords are AES-256-GCM encrypted with this key
+      # (falls back to SECRET when empty). See README "保存网页账号密码".
+      ROBO_CREDENTIALS_FILE: '${ROBO_CREDENTIALS_FILE:-/data/credentials.json}'
+      ROBO_CREDENTIALS_KEY: '${ROBO_CREDENTIALS_KEY:-}'
     volumes:
       - robrowser-data:/data
     # Chromium needs a larger /dev/shm than the 64 MB Docker default; the

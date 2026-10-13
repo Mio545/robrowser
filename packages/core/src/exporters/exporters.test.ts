@@ -18,6 +18,7 @@ export function exporterSampleFlow(): FlowModel {
       base: { type: 'const', value: 'file:///fixtures/login.html' },
       user: { type: 'input', label: 'User', default: 'alice' },
       token: { type: 'secret', key: 'DEMO_TOKEN', default: 's3cret' },
+      login: { type: 'credential', key: 'github' },
     },
     steps: [
       { id: 'go', type: 'goto', url: '{{base}}', waitUntil: 'load' },
@@ -74,6 +75,20 @@ describe('exportPlaywright', () => {
     expect(script).toContain('process.env["DEMO_TOKEN"]');
     expect(script).toContain('process.env["ROBO_USER"]');
     expect(script).toContain('file:///fixtures/login.html');
+  });
+
+  it('never bakes a credential password into the generated script', () => {
+    const flow = exporterSampleFlow();
+    flow.variables = {
+      login: { type: 'credential', key: 'github', url: 'https://github.com/login' },
+    };
+    for (const script of [exportPlaywright(flow), exportRawCdp(flow)]) {
+      expect(script).toContain('ROBO_CRED_GITHUB_USERNAME');
+      expect(script).toContain('ROBO_CRED_GITHUB_PASSWORD');
+      expect(script).toContain('__roboCredential: "github"');
+      // The declaration survives, but nothing resembling a password does.
+      expect(script).not.toMatch(/password:\s*["'][^"']/);
+    }
   });
 
   it('throws a descriptive error for manual steps by default', () => {

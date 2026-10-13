@@ -541,6 +541,26 @@ code {
   background: #0c1424;
 }
 
+/* Credentials panel: inline warning + redacted metadata line. */
+.rb-warn {
+  color: #fcd34d;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.rb-error-text {
+  color: #fca5a5;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.rb-cred-meta,
+.rb-cred-hint {
+  font-size: 11px;
+  line-height: 1.5;
+  word-break: break-all;
+}
+
 .rb-field {
   display: flex;
   flex-direction: column;

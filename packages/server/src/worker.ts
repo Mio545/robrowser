@@ -18,6 +18,7 @@ import { EventEmitter } from 'node:events';
 import { createLogger } from './logger.js';
 import { SqliteStorage } from './storage.js';
 import { createRuntime } from './runtime.js';
+import { DisabledCredentialStore, FileCredentialStore } from './credentials.js';
 import { TakeoverService, RemoteTakeoverHandler } from './takeover/service.js';
 import { TicketService } from './takeover/tokens.js';
 import { buildNotifier, deliverRunFailure, warnMissingChannels } from './notify/build.js';
@@ -108,8 +109,21 @@ export async function runTask(message: Extract<ParentMessage, { type: 'task' }>)
     });
   };
 
+  // The vault lives in the worker: the parent only forwards the path and key,
+  // so the encryption key never has to be written to the task table.
+  const credentialStore = message.credentialsFile
+    ? new FileCredentialStore({
+        file: message.credentialsFile,
+        ...(message.credentialsKey ? { key: message.credentialsKey } : {}),
+        logger,
+      })
+    : new DisabledCredentialStore(
+        '服务端未配置凭据库（ROBO_CREDENTIALS_FILE），无法解析 credential 变量。',
+      );
+
   const runtime = createRuntime({
     logger,
+    credentialStore,
     config: {
       HOST: '127.0.0.1',
       PORT: 0,

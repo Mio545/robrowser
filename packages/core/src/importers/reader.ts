@@ -178,7 +178,8 @@ export function isBoilerplate(text: string): boolean {
  *
  * Note the two documented losses: `secret` and `env` declarations are emitted
  * identically (`process.env["KEY"]`), so env wins; and an `input` label is not
- * emitted at all, so the variable name is used instead.
+ * emitted at all, so the variable name is used instead. `credential` is emitted
+ * with a `__roboCredential` marker and therefore round-trips losslessly.
  */
 export function parseVariablesBlock(
   body: string,
@@ -204,6 +205,9 @@ export function parseVariablesBlock(
 
 /** Recover a single variable declaration from its value expression. */
 function recoverVariable(name: string, expr: string, ctx: ImportContext, line: number): VariableDef {
+  const credential = recoverCredential(expr);
+  if (credential) return credential;
+
   const env = S.parseEnvLookup(expr);
   if (env) {
     const fallback = env.fallback === null ? null : S.parseStringExpr(env.fallback);
@@ -229,6 +233,32 @@ function recoverVariable(name: string, expr: string, ctx: ImportContext, line: n
   if (literal.ok) return { type: 'const', value: literal.value };
   ctx.warn(line, `变量「${name}」无法还原：${literal.reason}`, expr);
   return { type: 'const', value: null };
+}
+
+/**
+ * Recover a 'credential' declaration emitted by the exporters.
+ *
+ * The exported shape is
+ * '{ __roboCredential: "login", username: process.env[...], password: process.env[...] }';
+ * only the credential *name* is carried over, because the script itself never
+ * contained the password.
+ */
+function recoverCredential(expr: string): VariableDef | null {
+  const text = expr.trim();
+  if (!text.startsWith('{') || !text.endsWith('}')) return null;
+  let key: string | null = null;
+  let url: string | null = null;
+  for (const entry of S.splitTopLevel(text.slice(1, -1), ',')) {
+    const kv = S.splitObjectEntry(entry);
+    if (!kv) continue;
+    const field = S.parseObjectKey(kv.key);
+    if (field === '__roboCredential') key = S.parseStringExpr(kv.value);
+    else if (field === 'url') url = S.parseStringExpr(kv.value);
+  }
+  if (key === null || key.length === 0) return null;
+  return url !== null && url.length > 0
+    ? { type: 'credential', key, url }
+    : { type: 'credential', key };
 }
 
 /* ------------------------------------------------------------------- branch */

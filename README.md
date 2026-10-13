@@ -93,6 +93,7 @@ pnpm --filter @robrowser/desktop package
 - **ExportDialog**：预览并保存 Playwright / raw-cdp 脚本；
 - **ImportDialog**：粘贴或打开 Playwright / raw-cdp 脚本，还原为可编辑流程，
   并列出无法映射的语句；
+- **凭据**：管理网页账号密码（详见 `网页账号密码（凭据库）` 一节）；
 - `manual` 步骤弹出本地窗口，用户在内嵌浏览器里操作后点“完成并继续”。
 
 关于原生视图与覆盖层（实现细节，修改布局时务必留意）：
@@ -113,6 +114,69 @@ pnpm --filter @robrowser/desktop package
 渲染进程没有 Node 权限：`contextIsolation: true`、`nodeIntegration: false`，
 所有能力经由 preload 暴露的最小 IPC API。流程与运行历史存在
 `app.getPath('userData')` 下的 SQLite。
+
+## 网页账号密码（凭据库）
+
+流程文件（FlowModel JSON）里**只保存凭据名，不保存密码**，因此可以安全提交到仓库。
+需要登录的步骤通过 `credential` 变量取值：
+
+```jsonc
+{
+  "variables": {
+    "login": { "type": "credential", "key": "github" },
+  },
+  "steps": [
+    { "id": "user", "type": "type", "selector": { "css": "#login" }, "value": "{{login.username}}" },
+    { "id": "pass", "type": "type", "selector": { "css": "#password" }, "value": "{{login.password}}" },
+  ],
+}
+```
+
+- `key` 是凭据名，运行时到宿主的凭据库中查找，解析为 `{ username, password, url? }`；
+- `credential` 与 `secret` 一样脱敏：运行摘要、checkpoint 与事件里都显示 `***`；
+- 找不到凭据时抛出带变量名与位置的 `VARIABLE_UNDEFINED`，不会退化成空密码提交。
+
+### 桌面端
+
+左栏 **凭据** 面板用于新增 / 编辑 / 删除网页账号密码。密码由 Electron `safeStorage`
+（Windows DPAPI、macOS Keychain、Linux libsecret）加密后写入
+`app.getPath('userData')` 下的 SQLite，**明文只存在于主进程内存**：
+
+- 编辑已有凭据时密码框留空表示“不修改”，界面永远不会把密码回填到 DOM；
+- 系统凭据库不可用（例如 Linux 上缺 libsecret）时**拒绝保存密码**并给出提示，
+  只允许保存用户名，不会静默降级成明文；
+- 列表接口只返回用户名 / 站点 / 更新时间等元数据，不返回密码。
+
+### 服务端
+
+无头部署没有系统凭据库，改用 AES-256-GCM 加密的 JSON 文件：
+
+| 变量                    | 说明                                            |
+| ----------------------- | ----------------------------------------------- |
+| `ROBO_CREDENTIALS_FILE` | 凭据文件路径，默认 `<RUN_DIR>/credentials.json` |
+| `ROBO_CREDENTIALS_KEY`  | 加密密钥，未设置时回落到 `SECRET`               |
+
+- 文件里只有密文（scrypt 派生密钥 + 随机 IV + GCM tag），单独泄露文件无法还原密码；
+- 未配置任何密钥时**拒绝保存密码**，与桌面端行为一致；
+- 写入经临时文件 + rename 原子落盘，并串行化读改写；
+- 更换密钥后旧密文无法解密，会提示“重新保存密码”。
+
+### 导出脚本里的凭据
+
+导出的 Playwright / raw-cdp 脚本拿不到宿主凭据库，改为读取环境变量
+`ROBO_CRED_<KEY>_USERNAME` / `ROBO_CRED_<KEY>_PASSWORD`（`<KEY>` 是凭据名大写、
+非字母数字转下划线），脚本里不会出现密码：
+
+```bash
+export ROBO_CRED_GITHUB_USERNAME=alice
+export ROBO_CRED_GITHUB_PASSWORD=...
+node run/demo.cjs
+```
+
+导入脚本时，导出器写入的 `__roboCredential` 标记会把变量无损还原为 `credential`。
+
+> **注意**：`secret` 变量的 `default` 是**明文写进流程 JSON** 的。要保存登录密码请用
+> `credential`，不要把密码放进 `secret.default` 或 `const`。
 
 ## 服务器
 
@@ -289,6 +353,8 @@ POST 的 JSON 里 `type` 为 `takeover.requested` 或 `run.failed`，`fields` �
 | `SMTP_URL`               | 未设置                          | `email` 通知渠道的 SMTP 连接串或 HTTP 网关       |
 | `NOTIFY_TO`              | 未设置                          | 邮件默认收件人                                   |
 | `NOTIFY_ON_FAILURE`      | `true`                          | 运行失败（报错/超时/中止）时是否也推送通知       |
+| `ROBO_CREDENTIALS_FILE`  | `<RUN_DIR>/credentials.json`    | 服务端网页账号密码库（AES-256-GCM 加密文件）     |
+| `ROBO_CREDENTIALS_KEY`   | 回落 `SECRET`                   | 凭据库加密密钥，不设且无 `SECRET` 时拒存密码     |
 | `TZ`                     | 容器内 `Asia/Shanghai`          | 时区，影响日志与截图时间戳                       |
 | `LANG` / `LC_ALL`        | 容器内 `C.UTF-8`                | 语言环境                                         |
 
@@ -398,14 +464,16 @@ TypeScript 类型的唯一来源。
   `extract` / `screenshot` / `branch` / `loop` / `setVar` / `httpCall` / `manual`。
 - `SelectorSpec` 支持 `string`、`{testId}`、`{role,name}`、`{text,exact}`、`{css}`、
   `{xpath}`、`{candidates:[...]}`；`candidates` 按顺序尝试，全部失败才报错。
-- 字符串字段支持 `{{name}}` 插值，来源为 const / env / secret / input / 步骤输出；
-  未定义变量会抛出带变量名与位置的明确错误。
+- 字符串字段支持 `{{name}}` 插值，来源为 const / env / secret / input /
+  credential / 步骤输出；未定义变量会抛出带变量名与位置的明确错误。
 - `onError` 与步骤级配置共同决定重试策略，退避支持 `none` / `linear` / `exponential`。
 - 每步成功后写 `<runDir>/checkpoint.json`，可用 checkpoint 续跑。
 - 完整事件：`step:start` / `step:ok` / `step:fail` / `log` / `screenshot` /
   `run:aborted` / `manual:request` / `manual:resolved`，均为类型化事件。
 
 `secret` 变量在运行结果中会被脱敏为 `***`，不会出现在日志或事件里。
+登录用的账号密码请用 `credential` 变量（只写凭据名，密码存宿主凭据库），
+详见 `网页账号密码（凭据库）` 一节。
 
 ## 脚本导出
 
@@ -422,6 +490,8 @@ node run/demo.cjs
 
 - Playwright 导出把变量映射为 `process.env`（`input` 变量映射为
   `ROBO_<NAME>`），`manual` 步骤生成明确的抛错或等待外部信号的分支；
+- `credential` 变量导出为 `ROBO_CRED_<KEY>_USERNAME` /
+  `ROBO_CRED_<KEY>_PASSWORD` 环境变量读取，密码绝不写进脚本；
 - 相对 `goto` URL 与引擎行为一致：导出时记录流程文件所在目录并解析成
   `file://`，因此 `{{fixtures}}login.html` 这类写法无需手改；
 - 启动的浏览器遵循 `CHROME_PATH`（未设置时回落到 Playwright 自带 Chromium），
@@ -448,6 +518,8 @@ node packages/server/dist/cli.js import run/demo.cjs > flows/from-script.json
 - **往返幂等**：`export(import(export(flow))) === export(flow)`，两个目标都成立
   （见 `packages/core/src/importers/importers.test.ts`）。RoboBrowser 导出的脚本带
   `// <id>: <type>` 锚点注释，步骤 id 与类型因此能精确还原；
+- `credential` 变量凭导出器写入的 `__roboCredential` 标记无损还原为
+  `credential` 声明，脚本里只有环境变量名，没有密码；
 - **手写脚本**同样支持常用写法：`page.goto` / `page.fill(sel, val)` /
   `locator.click()` / `pressSequentially` / `selectOption` / `hover` /
   `waitForSelector` / `waitForURL` / `page.screenshot`，

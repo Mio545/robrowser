@@ -20,6 +20,7 @@ import type { RunEvent, RunResult } from '@robrowser/core';
 import { toRoboError } from '@robrowser/core';
 import type { ServerConfig } from './env.js';
 import { chromeArgs, notifyChannels } from './env.js';
+import { resolveCredentialVault } from './credentials.js';
 import type { SqliteStorage, TaskRow } from './storage.js';
 import type { WorkerMessage } from './worker-protocol.js';
 import { WorkerTakeoverRelay } from './takeover/worker-relay.js';
@@ -69,6 +70,10 @@ export class WorkerSupervisor {
   public run(task: TaskRow, signal: AbortSignal): Promise<RunResult> {
     const { logger, config, takeover } = this.options;
     const runDir = resolve(task.runDir ?? join(config.RUN_DIR, 'runs', task.id));
+    // The vault key is the dedicated credential key when present, otherwise the
+    // takeover signing secret: a deployment that already sets SECRET gets
+    // encrypted password storage without extra configuration.
+    const { file: credentialsFile, key: credentialsKey } = resolveCredentialVault(config);
     const workerPath = join(dirname(fileURLToPath(import.meta.url)), 'worker.js');
 
     return new Promise<RunResult>((resolvePromise, rejectPromise) => {
@@ -170,6 +175,8 @@ export class WorkerSupervisor {
           : {}),
         ...(config.DINGTALK_SECRET ? { dingtalkSecret: config.DINGTALK_SECRET } : {}),
         notifyOnFailure: config.NOTIFY_ON_FAILURE,
+        credentialsFile,
+        ...(credentialsKey ? { credentialsKey } : {}),
         publicUrl: config.PUBLIC_URL,
       });
     }).finally(() => {

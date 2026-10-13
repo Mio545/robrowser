@@ -11,6 +11,7 @@ const vars = {
   base: "file:///fixtures/login.html",
   user: process.env["ROBO_USER"] ?? "alice",
   token: process.env["DEMO_TOKEN"] ?? "s3cret",
+  login: { __roboCredential: "github", username: process.env["ROBO_CRED_GITHUB_USERNAME"] ?? '', password: process.env["ROBO_CRED_GITHUB_PASSWORD"] ?? '' },
 };
 
 // --- generated helpers -------------------------------------------------------
@@ -264,6 +265,7 @@ const vars = {
   base: "file:///fixtures/login.html",
   user: process.env["ROBO_USER"] ?? "alice",
   token: process.env["DEMO_TOKEN"] ?? "s3cret",
+  login: { __roboCredential: "github", username: process.env["ROBO_CRED_GITHUB_USERNAME"] ?? '', password: process.env["ROBO_CRED_GITHUB_PASSWORD"] ?? '' },
 };
 
 (async () => {

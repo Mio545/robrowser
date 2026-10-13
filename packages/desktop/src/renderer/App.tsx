@@ -16,6 +16,7 @@ import type { FlowSummary, RunSummary } from '../shared/types';
 import { FlowEditor } from './components/FlowEditor';
 import { StepConfigPanel } from './components/StepConfigPanel';
 import { VariablePanel } from './components/VariablePanel';
+import { CredentialPanel } from './components/CredentialPanel';
 import { RunLogPanel } from './components/RunLogPanel';
 import { BrowserPreview } from './components/BrowserPreview';
 import { ExportDialog } from './components/ExportDialog';
@@ -32,7 +33,7 @@ interface ManualPrompt {
 }
 
 /** Which side panel is visible in the left column. */
-type LeftTab = 'config' | 'variables';
+type LeftTab = 'config' | 'variables' | 'credentials';
 
 /** Root component. */
 export function App(): React.ReactElement {
@@ -559,13 +560,20 @@ export function App(): React.ReactElement {
             >
               变量 ({Object.keys(flow.variables ?? {}).length})
             </button>
+            <button
+              className={tab === 'credentials' ? 'rb-tab-active' : ''}
+              onClick={() => setTab('credentials')}
+            >
+              凭据
+            </button>
           </div>
           <div className="rb-tab-body">
-            {tab === 'config' ? (
+            {tab === 'config' && (
               <StepConfigPanel flow={flow} step={selectedStep} onChange={updateFlow} />
-            ) : (
-              <VariablePanel flow={flow} onChange={updateFlow} />
             )}
+            {tab === 'variables' && <VariablePanel flow={flow} onChange={updateFlow} />}
+            {/* Credentials are host-global (keychain), never part of the flow. */}
+            {tab === 'credentials' && <CredentialPanel />}
           </div>
         </section>
 

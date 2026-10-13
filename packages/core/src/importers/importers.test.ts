@@ -199,6 +199,25 @@ describe.each(['playwright', 'raw-cdp'] as const)('%s round trip', (target) => {
     expect(() => new Function(exportFlow(demoFlow(), target))).not.toThrow();
   });
 
+  it('round-trips a credential declaration without its password', () => {
+    const flow = demoFlow();
+    flow.variables = {
+      ...flow.variables,
+      login: { type: 'credential', key: 'github', url: 'https://github.com/login' },
+    };
+    const { first, firstImport, second, third } = roundTrip(target, flow);
+
+    expect(firstImport.flow.variables?.login).toEqual({
+      type: 'credential',
+      key: 'github',
+      url: 'https://github.com/login',
+    });
+    // The importer must not invent a password out of the env fallbacks.
+    expect(first).toContain('__roboCredential');
+    expect(second).toBe(first);
+    expect(third).toBe(second);
+  });
+
   it('preserves step ids, order and nesting', () => {
     const { firstImport } = roundTrip(target, tortureFlow());
     expect(firstImport.flow.id).toBe('torture');

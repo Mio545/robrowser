@@ -1,5 +1,5 @@
 /**
- * Variable resolvers for the four declaration kinds plus step outputs.
+ * Variable resolvers for the five declaration kinds plus step outputs.
  *
  * These are thin, stateless helpers on top of {@link VariableStore}; they exist
  * so that the desktop UI and exporters can resolve the same way at author time.
@@ -7,9 +7,13 @@
 import type { VariableDef } from '../flow/schema.js';
 import { interpolate, VariableStore, type VariableEnvironment } from './store.js';
 
-/** Which declaration kinds are considered secret (and therefore redacted). */
+/**
+ * Which declaration kinds must never be echoed back.
+ *
+ * `credential` carries a password, so it is redacted exactly like `secret`.
+ */
 export function isSecretDef(def: VariableDef): boolean {
-  return def.type === 'secret';
+  return def.type === 'secret' || def.type === 'credential';
 }
 
 /**
@@ -31,6 +35,8 @@ export async function resolveVariableDef(
       return env.get(def.key) ?? def.default;
     case 'secret':
       return env.get(def.key) ?? def.default;
+    case 'credential':
+      return env.getCredential?.(def.key);
     case 'input': {
       const supplied = await env.requestInput?.(name, def);
       return supplied ?? def.default ?? '';

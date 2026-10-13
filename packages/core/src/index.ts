@@ -80,11 +80,25 @@ export {
   VariableStore,
   interpolate,
   processEnvironment,
+  isRedactedScope,
   type VarEntry,
   type VarScope,
   type VariableEnvironment,
 } from './vars/store.js';
 export { buildVariableStore, resolveVariableDef, isSecretDef } from './vars/resolvers.js';
+
+/* -- credentials ----------------------------------------------------------- */
+export {
+  InMemoryCredentialStore,
+  credentialEnvKeys,
+  normalizeCredential,
+  summarizeCredential,
+  type CredentialInput,
+  type CredentialRecord,
+  type CredentialStore,
+  type CredentialSummary,
+  type ResolvedCredential,
+} from './credentials/store.js';
 
 /* -- steps ----------------------------------------------------------------- */
 export { StepRegistry, createDefaultRegistry } from './steps/index.js';

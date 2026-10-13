@@ -19,7 +19,7 @@ import type {
   StartRunRequest,
   StartRunResponse,
 } from '../shared/types.js';
-import type { FlowModel } from '@robrowser/core';
+import type { CredentialInput, CredentialSummary, FlowModel } from '@robrowser/core';
 
 /** Channel names, kept in one place so main/preload cannot drift apart. */
 const CHANNELS = {
@@ -40,6 +40,10 @@ const CHANNELS = {
   setBrowserBounds: 'browser:set-bounds',
   openPath: 'system:open-path',
   navigate: 'browser:navigate',
+  listCredentials: 'credentials:list',
+  saveCredential: 'credentials:save',
+  deleteCredential: 'credentials:delete',
+  credentialsAvailable: 'credentials:available',
 } as const;
 
 const api: RoboBrowserApi & { navigate(url: string): Promise<{ ok: boolean }> } = {
@@ -72,6 +76,17 @@ const api: RoboBrowserApi & { navigate(url: string): Promise<{ ok: boolean }> } 
     ipcRenderer.invoke(CHANNELS.setBrowserBounds, bounds) as Promise<{ ok: boolean }>,
   openPath: (targetPath, mode) =>
     ipcRenderer.invoke(CHANNELS.openPath, targetPath, mode) as Promise<OpenPathResult>,
+  listCredentials: () =>
+    ipcRenderer.invoke(CHANNELS.listCredentials) as Promise<CredentialSummary[]>,
+  saveCredential: (input: CredentialInput) =>
+    ipcRenderer.invoke(CHANNELS.saveCredential, input) as Promise<{ ok: boolean; error?: string }>,
+  deleteCredential: (key) =>
+    ipcRenderer.invoke(CHANNELS.deleteCredential, key) as Promise<{ ok: boolean }>,
+  credentialsAvailable: () =>
+    ipcRenderer.invoke(CHANNELS.credentialsAvailable) as Promise<{
+      available: boolean;
+      reason?: string;
+    }>,
   on: <K extends keyof MainEvents>(event: K, listener: (payload: MainEvents[K]) => void) => {
     const handler = (_ipcEvent: unknown, payload: MainEvents[K]): void => listener(payload);
     ipcRenderer.on(event, handler);

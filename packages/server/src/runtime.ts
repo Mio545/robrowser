@@ -15,6 +15,7 @@ import {
   Orchestrator,
   UnsupportedManualHandler,
   VariableStore,
+  type CredentialStore,
   type FlowModel,
   type ManualHandler,
   type PageObserver,
@@ -40,6 +41,13 @@ export interface RuntimeOptions {
   pages?: PageRegistry;
   /** Use a fake page instead of launching Chromium (tests). */
   page?: PagePort;
+  /**
+   * Web-login vault backing `{ type: "credential" }` variables.
+   *
+   * Omitting it leaves such variables unresolved, which fails the run with an
+   * explicit `VARIABLE_UNDEFINED` error rather than an empty password.
+   */
+  credentialStore?: CredentialStore;
 }
 
 /** A ready-to-use runtime handle. */
@@ -144,7 +152,24 @@ export function createRuntime(options: RuntimeOptions): Runtime {
       const runDir = resolve(runOptions.runDir ?? join(config.RUN_DIR, 'runs', runId));
       await mkdir(runDir, { recursive: true });
 
-      const variableStore = new VariableStore();
+      const credentialStore = options.credentialStore;
+      const variableStore = new VariableStore({
+        get: (key) => process.env[key],
+        requestInput: undefined,
+        // Re-read on every access so a password rotated outside the process is
+        // picked up without restarting the worker.
+        getCredential: credentialStore
+          ? async (key) => {
+              const record = await credentialStore.get(key);
+              if (!record) return undefined;
+              return {
+                username: record.username ?? '',
+                password: record.password ?? '',
+                ...(record.url ? { url: record.url } : {}),
+              };
+            }
+          : undefined,
+      });
       await variableStore.declare(flow.variables, runOptions.vars ?? {});
 
       const orchestrator = new Orchestrator({

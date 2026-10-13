@@ -55,6 +55,21 @@ export const serverConfigSchema = z.object({
   /** DingTalk robot signing secret (`SEC...`). */
   DINGTALK_SECRET: z.string().optional(),
   /**
+   * Web-login vault file. Defaults to `<RUN_DIR>/credentials.json`.
+   *
+   * Passwords are stored AES-256-GCM encrypted; the file alone is useless
+   * without the key below.
+   */
+  ROBO_CREDENTIALS_FILE: z.string().default(''),
+  /**
+   * Encryption key for the credential vault.
+   *
+   * Falls back to `SECRET` when unset. With neither configured, the server
+   * refuses to *save* passwords (usernames still work) instead of writing them
+   * in the clear.
+   */
+  ROBO_CREDENTIALS_KEY: z.string().optional(),
+  /**
    * Notify on terminal run failures (step error / timeout / abort), not only on
    * `manual` steps. `true` by default so an unattended scheduler does not
    * fail silently.

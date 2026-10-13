@@ -8,6 +8,7 @@
  *   automate import   <script.js> [--target playwright|raw-cdp] [--out flow.json]
  *   automate serve    [--host <host>] [--port <port>]
  *   automate takeover <flow.json> [--headless] [--out <dir>] [--var k=v]
+ *   automate credentials list|set|delete
  *
  * Exit codes: 0 on success, non-zero on failure. Every run prints a structured
  * JSON summary on stdout so CI can consume it; diagnostics go to stderr via pino
@@ -34,6 +35,7 @@ import { resolveFlowPath } from './cli-paths.js';
 import { loadConfig, notifyChannels } from './env.js';
 import { createLogger } from './logger.js';
 import { createRuntime } from './runtime.js';
+import { FileCredentialStore, resolveCredentialVault } from './credentials.js';
 import { TicketService } from './takeover/tokens.js';
 import { TakeoverService, RemoteTakeoverHandler } from './takeover/service.js';
 import { buildNotifier, deliverRunFailure, warnMissingChannels } from './notify/build.js';
@@ -93,6 +95,12 @@ export async function main(argv: readonly string[] = process.argv.slice(2)): Pro
       return runCommand(command);
     case 'serve':
       return serveCommand(command);
+    case 'credentials-list':
+      return credentialsListCommand();
+    case 'credentials-set':
+      return credentialsSetCommand(command);
+    case 'credentials-delete':
+      return credentialsDeleteCommand(command.key);
     default: {
       const exhaustive: never = command;
       process.stderr.write(`Unsupported command: ${JSON.stringify(exhaustive)}\n`);
@@ -232,6 +240,109 @@ async function importCommand(
   }
 }
 
+/* -------------------------------------------------------------- credentials */
+
+/**
+ * Build the server-side vault from validated config.
+ *
+ * Shared by the `credentials` subcommands so `list` / `set` /
+ * `delete` all touch the same file the workers read from. Key material
+ * falls back to `SECRET`, matching `WorkerSupervisor`.
+ */
+function openCredentialStore(): { store: FileCredentialStore; file: string } {
+  const config = loadConfig(process.env);
+  const logger = createLogger({ level: config.LOG_LEVEL, base: { scope: 'credentials' } });
+  const { file, key } = resolveCredentialVault(config);
+  const store = new FileCredentialStore({ file, key, logger });
+  return { store, file };
+}
+
+/** `automate credentials list` — redacted metadata only. */
+async function credentialsListCommand(): Promise<number> {
+  try {
+    const { store } = openCredentialStore();
+    const entries = await store.list();
+    process.stdout.write(
+      `${JSON.stringify({ command: 'credentials', status: 'ok', action: 'list', entries }, null, 2)}\n`,
+    );
+    return 0;
+  } catch (error) {
+    const robo = toRoboError(error);
+    process.stderr.write(
+      `${JSON.stringify({ command: 'credentials', status: 'failed', error: robo.code, message: robo.message })}\n`,
+    );
+    return 1;
+  }
+}
+
+/**
+ * `automate credentials set <name> [--username <u>] [--url <url>]`
+ *
+ * The password is read from `--password-env <VAR>` by preference: passing a
+ * secret as argv exposes it in the process list and the shell history.
+ */
+async function credentialsSetCommand(
+  command: Extract<ReturnType<typeof parseArgs>['command'], { kind: 'credentials-set' }>,
+): Promise<number> {
+  try {
+    const password =
+      command.passwordEnv !== undefined ? process.env[command.passwordEnv] : command.password;
+    if (command.passwordEnv !== undefined && password === undefined) {
+      throw new Error('环境变量 ' + command.passwordEnv + ' 未设置，无法读取密码');
+    }
+    const { store, file } = openCredentialStore();
+    const record = await store.set({
+      key: command.key,
+      ...(command.username !== undefined ? { username: command.username } : {}),
+      ...(password !== undefined ? { password } : {}),
+      ...(command.url !== undefined ? { url: command.url } : {}),
+    });
+    process.stdout.write(
+      `${JSON.stringify(
+        {
+          command: 'credentials',
+          status: 'ok',
+          action: 'set',
+          file,
+          entry: {
+            key: record.key,
+            username: record.username,
+            url: record.url,
+            hasPassword: record.password !== undefined,
+          },
+        },
+        null,
+        2,
+      )}\n`,
+    );
+    return 0;
+  } catch (error) {
+    const robo = toRoboError(error);
+    process.stderr.write(
+      `${JSON.stringify({ command: 'credentials', status: 'failed', error: robo.code, message: robo.message })}\n`,
+    );
+    return robo.code === 'VALIDATION_ERROR' ? EXIT_VALIDATION : 1;
+  }
+}
+
+/** `automate credentials delete <name>` */
+async function credentialsDeleteCommand(key: string): Promise<number> {
+  try {
+    const { store } = openCredentialStore();
+    const deleted = await store.delete(key);
+    process.stdout.write(
+      `${JSON.stringify({ command: 'credentials', status: 'ok', action: 'delete', key, deleted }, null, 2)}\n`,
+    );
+    return 0;
+  } catch (error) {
+    const robo = toRoboError(error);
+    process.stderr.write(
+      `${JSON.stringify({ command: 'credentials', status: 'failed', error: robo.code, message: robo.message })}\n`,
+    );
+    return 1;
+  }
+}
+
 /* ----------------------------------------------------------------------- run */
 
 async function runCommand(
@@ -301,9 +412,21 @@ async function runCommand(
   });
   const manualHandler = new RemoteTakeoverHandler(service);
 
+  // The run command is single-process, so the vault is built here rather than
+  // forwarded over IPC the way the serve workers do. Resolve it from the
+  // unmodified config: RUN_DIR above points at this run's artefact directory,
+  // while the vault is shared with serve and the credentials subcommands.
+  const vaultLocation = resolveCredentialVault(config);
+  const credentialStore = new FileCredentialStore({
+    file: vaultLocation.file,
+    key: vaultLocation.key,
+    logger,
+  });
+
   const runtime = createRuntime({
     logger,
     config: effectiveConfig,
+    credentialStore,
     ...(command.autoManual
       ? { manual: { request: async () => ({ status: 'resolved' as const, by: 'cli' }) } }
       : { manual: manualHandler }),

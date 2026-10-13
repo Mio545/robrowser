@@ -44,6 +44,10 @@ export type ParentMessage =
       smtpUrl?: string;
       /** Whether terminal run failures produce a notification. */
       notifyOnFailure: boolean;
+      /** Absolute path of the encrypted web-login vault file. */
+      credentialsFile?: string;
+      /** Encryption key for the vault; empty means "passwords cannot be saved". */
+      credentialsKey?: string;
       /** Public origin the operator sees (the parent's PUBLIC_URL). */
       publicUrl: string;
     }

@@ -7,14 +7,18 @@ export interface VariablePanelProps {
   onChange(flow: FlowModel): void;
 }
 
-const KINDS: VariableDef['type'][] = ['const', 'env', 'secret', 'input'];
+const KINDS: VariableDef['type'][] = ['const', 'env', 'secret', 'credential', 'input'];
 
 /**
- * Variables editor (spec 9): const / env / secret / input declarations.
+ * Variables editor (spec 9): const / env / secret / credential / input.
  *
  * `env` and `secret` expose the environment key; `input` exposes a label and an
- * optional default. The panel writes straight back into `flow.variables`, which
- * is exactly the map the engine's VariableStore consumes.
+ * optional default. `credential` stores only the *name* of a web login: the
+ * password lives in the OS keychain (see the 凭据 panel), so a flow can be
+ * committed to git without leaking anything.
+ *
+ * The panel writes straight back into `flow.variables`, which is exactly the map
+ * the engine's VariableStore consumes.
  */
 export function VariablePanel({ flow, onChange }: VariablePanelProps): React.ReactElement {
   const variables = flow.variables ?? {};
@@ -48,7 +52,9 @@ export function VariablePanel({ flow, onChange }: VariablePanelProps): React.Rea
           ? { type: 'env', key: name.toUpperCase() }
           : kind === 'secret'
             ? { type: 'secret', key: name.toUpperCase() }
-            : { type: 'input', label: name };
+            : kind === 'credential'
+              ? { type: 'credential', key: name }
+              : { type: 'input', label: name };
     update({ ...variables, [name]: def });
   };
 
@@ -134,6 +140,25 @@ export function VariablePanel({ flow, onChange }: VariablePanelProps): React.Rea
                 }
               />
             </div>
+          )}
+          {def.type === 'credential' && (
+            <div className="rb-row">
+              <input
+                placeholder="凭据名（在 凭据 面板中保存）"
+                value={def.key}
+                onChange={(event) =>
+                  update({
+                    ...variables,
+                    [name]: { type: 'credential', key: event.target.value },
+                  })
+                }
+              />
+            </div>
+          )}
+          {def.type === 'credential' && (
+            <p className="rb-muted rb-cred-hint">
+              密码保存在系统凭据库，不写入流程。步骤中用 {'`{{' + name + '.password}}`'} 引用。
+            </p>
           )}
           {def.type === 'input' && (
             <div className="rb-row">

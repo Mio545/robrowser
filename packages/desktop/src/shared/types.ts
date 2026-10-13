@@ -5,7 +5,14 @@
  * The renderer never touches Node, CDP or the file system directly: everything
  * goes through the narrow `window.robrowser` API defined here.
  */
-import type { FlowModel, ImportWarning, RunEvent, RunResult } from '@robrowser/core';
+import type {
+  CredentialInput,
+  CredentialSummary,
+  FlowModel,
+  ImportWarning,
+  RunEvent,
+  RunResult,
+} from '@robrowser/core';
 
 /** A stored flow summary returned to the UI. */
 export interface FlowSummary {
@@ -170,5 +177,27 @@ export interface RoboBrowserApi {
    * Paths outside the userData `runs` directory are rejected (security).
    */
   openPath(targetPath: string, mode?: 'reveal' | 'open'): Promise<OpenPathResult>;
+  /**
+   * List stored web-login credentials.
+   *
+   * Only redacted metadata is returned; passwords never leave the main process.
+   */
+  listCredentials(): Promise<CredentialSummary[]>;
+  /**
+   * Insert or update a credential.
+   *
+   * Leaving `password` undefined keeps the previously stored password, which is
+   * how the editor expresses 'change the username only'.
+   */
+  saveCredential(input: CredentialInput): Promise<{ ok: boolean; error?: string }>;
+  /** Remove a credential. */
+  deleteCredential(key: string): Promise<{ ok: boolean }>;
+  /**
+   * Report whether the OS keychain can encrypt passwords.
+   *
+   * When `available` is false the UI can still store a username, but it must
+   * warn before the user types a password that would be rejected.
+   */
+  credentialsAvailable(): Promise<{ available: boolean; reason?: string }>;
   on<K extends keyof MainEvents>(event: K, listener: (payload: MainEvents[K]) => void): () => void;
 }

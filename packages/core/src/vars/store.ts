@@ -1,12 +1,20 @@
 /**
- * Variable resolution: `const` / `env` / `secret` / `input` declarations plus
- * runtime values produced by steps and the hosting application (spec 5.4).
+ * Variable resolution: `const` / `env` / `secret` / `input` / `credential`
+ * declarations plus runtime values produced by steps and the hosting
+ * application (spec 5.4).
  */
 import { VariableUndefinedError } from '../errors.js';
+import type { ResolvedCredential } from '../credentials/store.js';
 import type { VariableDef } from '../flow/schema.js';
 
 /** Runtime origin of a variable, used for redaction and UI grouping. */
-export type VarScope = 'const' | 'env' | 'secret' | 'input' | 'runtime';
+export type VarScope =
+  | 'const'
+  | 'env'
+  | 'secret'
+  | 'input'
+  | 'credential'
+  | 'runtime';
 
 /** A stored variable together with its origin. */
 export interface VarEntry {
@@ -24,12 +32,19 @@ export interface VariableEnvironment {
     name: string,
     def: Extract<VariableDef, { type: 'input' }>,
   ): Promise<string | undefined>;
+  /**
+   * Supplies `credential` variables from the host vault (OS keychain on the
+   * desktop, encrypted file on the server). Returns undefined when the name is
+   * not stored, which fails the run instead of sending an empty password.
+   */
+  getCredential?(key: string): Promise<ResolvedCredential | undefined>;
 }
 
 /** Default environment backed by `process.env`. */
 export const processEnvironment: VariableEnvironment = {
   get: (key) => process.env[key],
   requestInput: undefined,
+  getCredential: undefined,
 };
 
 const INTERPOLATION = /\{\{\s*([A-Za-z0-9_.\-[\]$]+)\s*\}\}/g;
@@ -102,6 +117,16 @@ export class VariableStore {
         if (raw !== undefined) return raw;
         if (def.default !== undefined) return def.default;
         throw new VariableUndefinedError(name, `variables.${name} (secret ${def.key})`);
+      }
+      case 'credential': {
+        const stored = await this.env.getCredential?.(def.key);
+        if (stored === undefined) {
+          throw new VariableUndefinedError(
+            name,
+            `variables.${name} (credential ${def.key}: 未在凭据库中找到，请在桌面端「凭据」面板或服务器凭据文件中添加)`,
+          );
+        }
+        return stored;
       }
       case 'input': {
         const supplied = await this.env.requestInput?.(name, def);
@@ -176,12 +201,14 @@ export class VariableStore {
   /**
    * Snapshot all variables.
    *
-   * @param options.redactSecrets - Replace secret values with `***`.
+   * @param options.redactSecrets - Replace secret and credential values with
+   *   `***` (a credential object carries a password, so it must never reach a
+   *   run summary, checkpoint or log line).
    */
   public snapshot(options: { redactSecrets?: boolean } = {}): Record<string, VarEntry> {
     const out: Record<string, VarEntry> = {};
     for (const [name, entry] of this.values) {
-      const redact = options.redactSecrets && entry.scope === 'secret';
+      const redact = options.redactSecrets && isRedactedScope(entry.scope);
       out[name] = { ...entry, value: redact ? '***' : entry.value };
     }
     return out;
@@ -207,6 +234,11 @@ export class VariableStore {
 
 function scopeFor(def: VariableDef): VarScope {
   return def.type;
+}
+
+/** True for the scopes whose concrete value must never be emitted. */
+export function isRedactedScope(scope: VarScope): boolean {
+  return scope === 'secret' || scope === 'credential';
 }
 
 /**

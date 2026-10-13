@@ -5,6 +5,8 @@ import { describe, expect, it } from 'vitest';
 import { flowModelSchema, type FlowModel } from './schema.js';
 import { assertValidFlow, collectSteps, validateFlow } from './validate.js';
 import { interpolate, VariableStore, type VariableEnvironment } from '../vars/store.js';
+import { InMemoryCredentialStore, type ResolvedCredential } from '../credentials/store.js';
+import { isSecretDef, resolveVariableDef } from '../vars/resolvers.js';
 import { VariableUndefinedError, ValidationError } from '../errors.js';
 
 /** A minimal valid flow used as the base for the negative cases below. */
@@ -19,6 +21,18 @@ function baseFlow(): FlowModel {
     },
     steps: [{ id: 'open', type: 'goto', url: 'file:///tmp/login.html' }],
     onError: { retry: 1, backoff: 'linear' },
+  };
+}
+
+/** Narrow a stored record to the shape `VariableEnvironment` hands back. */
+function resolveRecord(
+  record: { username?: string; password?: string; url?: string } | undefined,
+): ResolvedCredential | undefined {
+  if (!record) return undefined;
+  return {
+    username: record.username ?? '',
+    password: record.password ?? '',
+    ...(record.url ? { url: record.url } : {}),
   };
 }
 
@@ -117,6 +131,54 @@ describe('VariableStore + interpolate', () => {
     await store.declare({ token: { type: 'secret', key: 'DEMO_TOKEN' } });
     expect(store.snapshot({ redactSecrets: true }).token?.value).toBe('***');
     expect(store.snapshot().token?.value).toBe('from-env');
+  });
+
+  it('resolves a credential from the vault and redacts it everywhere', async () => {
+    const vault = new InMemoryCredentialStore([
+      { key: 'github', username: 'alice', password: 'p4ss', url: 'https://github.com/login' },
+    ]);
+    const credentialEnv: VariableEnvironment = {
+      get: (key) => env.get(key),
+      getCredential: (key) => vault.get(key).then((record) => resolveRecord(record)),
+    };
+    const store = new VariableStore(credentialEnv);
+    await store.declare({
+      login: { type: 'credential', key: 'github' },
+      token: { type: 'secret', key: 'DEMO_TOKEN' },
+    });
+
+    expect(store.get('login.username')).toBe('alice');
+    expect(store.get('login.password')).toBe('p4ss');
+    // The password must never survive a snapshot / checkpoint / run summary.
+    expect(store.snapshot({ redactSecrets: true }).login?.value).toBe('***');
+    expect(store.snapshot({ redactSecrets: true }).token?.value).toBe('***');
+    expect(store.snapshot().login?.value).toEqual({
+      username: 'alice',
+      password: 'p4ss',
+      url: 'https://github.com/login',
+    });
+  });
+
+  it('fails loudly when a credential is missing from the vault', async () => {
+    const store = new VariableStore({ get: () => undefined, getCredential: () => undefined });
+    await expect(
+      store.declare({ login: { type: 'credential', key: 'nope' } }),
+    ).rejects.toThrow(VariableUndefinedError);
+  });
+
+  it('treats credential as a secret declaration for UI / redaction purposes', () => {
+    expect(isSecretDef({ type: 'credential', key: 'x' })).toBe(true);
+    expect(isSecretDef({ type: 'secret', key: 'x' })).toBe(true);
+    expect(isSecretDef({ type: 'env', key: 'x' })).toBe(false);
+  });
+
+  it('resolves a credential declaration through resolveVariableDef', async () => {
+    const resolved = await resolveVariableDef(
+      'login',
+      { type: 'credential', key: 'github' },
+      { get: () => undefined, getCredential: async () => ({ username: 'a', password: 'b' }) },
+    );
+    expect(resolved).toEqual({ username: 'a', password: 'b' });
   });
 
   it('interpolates recursively and preserves primitive types for whole strings', () => {
